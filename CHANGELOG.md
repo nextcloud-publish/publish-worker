@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-15
+
 The storage roots are `BUILDS_DIR` and `PAGES_DIR`, with the defaults `var/builds` and `var/pages`.
 
-Update together with the publish release that mounts `/publish-worker/var/builds` and
+Update together with publish 0.5.0, which mounts `/publish-worker/var/builds` and
 `/publish-worker/var/pages`. A deployment that sets `JOB_STORAGE_DIR` or `PUBLISHED_DIR` renames them.
 
 ### Changed
@@ -116,7 +118,8 @@ need the new name.
   GHCR.
 - Pre-commit hooks that run the CI lint and test steps.
 
-[Unreleased]: https://github.com/nextcloud-publish/publish-worker/compare/0.5.0...HEAD
+[Unreleased]: https://github.com/nextcloud-publish/publish-worker/compare/0.6.0...HEAD
+[0.6.0]: https://github.com/nextcloud-publish/publish-worker/releases/tag/0.6.0
 [0.5.0]: https://github.com/nextcloud-publish/publish-worker/releases/tag/0.5.0
 [0.4.0]: https://github.com/nextcloud-publish/publish-worker/releases/tag/0.4.0
 [0.3.0]: https://github.com/nextcloud-publish/publish-worker/releases/tag/0.3.0
