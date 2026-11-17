@@ -52,7 +52,7 @@ serializer and never reaches the handler. The fields the handler reads:
 | `slug`                 | names the published site under `PAGES_DIR/<static_site_id>`            |
 | `title`                | the heading on every rendered page                                         |
 | `content_download_url` | the archive to fetch                                                       |
-| `callback_status_url`  | where the outcome is PUT; private network addresses are refused, except in dev |
+| `callback_status_url`  | where the outcome is PATCHed; private network addresses are refused, except in dev |
 | `render_options`       | optional, any JSON value; passed to `SiteBuilder::build()` unchecked       |
 
 `created_at` is decoded but never read.
@@ -73,8 +73,8 @@ directory, so reusing one would republish pages that were deleted from the colle
 
 | Outcome           | What happens                                                                                                                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Success           | `PAGES_DIR/<static_site_id>/` is replaced by one holding only `<slug>/`, the build tree is cleared, and `published` is PUT with    the `publish_url`                          |
-| Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PUTs `failed`  |
+| Success           | `PAGES_DIR/<static_site_id>/` is replaced by one holding only `<slug>/`, the build tree is cleared, and `published` is PATCHed with the `publish_url`                         |
+| Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed` |
 | Permanent failure | reported `failed` on the first delivery, never retried. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
 
 The callback body is `{"status": "published", "data": {"publish_url": ...}}` or
