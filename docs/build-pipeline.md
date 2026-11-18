@@ -77,6 +77,29 @@ The broker must declare the `delays` exchange. With `auto_setup: false`, Messeng
 its delay queues to it, and a missing exchange stops the consumer on its first retry. publish
 declares it in `docker/dev/rabbitmq/definitions.json`.
 
+## Status in publish's database
+
+publish stores every site in its `static_site` table, as `pending` with the `build_id` it
+enqueued. Before each callback the worker sets the outcome there:
+
+```sql
+UPDATE static_site SET status = 'published' WHERE id = :static_site_id AND build_id = :build_id
+```
+
+or `'failed'` from `BuildFailureHandler`. `src/Job/StaticSiteStatusStore.php` is the only SQL.
+
+- The order is publish, then status, then callback, so the database holds the result even when
+  the callback fails. A retried build sets the same status again.
+- The `build_id` condition is a fence: a build publish has since replaced does not change the
+  status, and neither does one whose site was deleted. Either is a `static_site status not saved`
+  warning, not a failure; the callback is sent as before.
+- A database error on success is an environment error: the build is retried. On failure it is
+  logged as `Could not save static_site status in the database`, and the `failed` callback is sent anyway.
+- If the callback still fails on the last attempt, the site is live but `failed`, in the
+  database as towards the client.
+- The worker owns no schema. The table is publish's migration; `tests/fixtures/static_site.sql`
+  is the copy the tests check the SQL against.
+
 ## Callback
 
 A `PATCH` to `callback_status_url` with one of two bodies:

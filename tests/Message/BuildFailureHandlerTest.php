@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Message;
 
 use App\Tests\DecodesJson;
+use App\Tests\StubsStatusStore;
 use App\Job\Filesystem;
 use App\Job\JobWorkspace;
 use App\Job\StatusNotifier;
@@ -31,6 +32,7 @@ use Symfony\Component\Messenger\EventListener\SendFailedMessageForRetryListener;
 final class BuildFailureHandlerTest extends TestCase
 {
     use DecodesJson;
+    use StubsStatusStore;
 
     private const SITE_ID = '11f5b798-6f34-4951-ad8b-bfd623ded5c2';
     private const BUILD_ID = '0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b';
@@ -105,6 +107,7 @@ final class BuildFailureHandlerTest extends TestCase
         return new BuildFailureHandler(
             $this->jobWorkspace(),
             new StatusNotifier($callbackClient ?? $this->callbackClient, $this->logger(), timeoutSeconds: 5, maxDurationSeconds: 10, maxRedirects: 0),
+            $this->statusStore(),
             $this->logger(),
             $this->buildsDir(),
             $this->root . '/pages',
@@ -184,6 +187,7 @@ final class BuildFailureHandlerTest extends TestCase
         );
 
         self::assertSame([], $this->callbacks);
+        self::assertSame([], $this->statusUpdates, 'nor is a status saved');
 
         /** The retry's reset() wipes this; clearing it now would throw away a build still in flight. */
         self::assertDirectoryExists($buildJobDir);
@@ -197,6 +201,50 @@ final class BuildFailureHandlerTest extends TestCase
         );
 
         self::assertSame([], $this->callbacks);
+    }
+
+    // --- what is saved in the database ------------------------------------
+
+    public function testSavesTheFailureBeforeReportingIt(): void
+    {
+        $callbacksBefore = null;
+        $this->statusUpdateResult = function () use (&$callbacksBefore): int {
+            $callbacksBefore = \count($this->callbacks);
+
+            return 1;
+        };
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedEvent(new \RuntimeException('Extracting failed')));
+
+        self::assertSame(
+            [['failed', self::SITE_ID, self::BUILD_ID]],
+            $this->statusUpdates,
+        );
+        self::assertSame(0, $callbacksBefore, 'the status is saved before the callback');
+        self::assertCount(1, $this->callbacks);
+    }
+
+    /** A newer build or a deleted site is logged; the client still hears of the failure. */
+    public function testASiteWithoutThisBuildIsLoggedAndStillReported(): void
+    {
+        $this->statusUpdateResult = static fn (): int => 0;
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedEvent(new \RuntimeException('Extracting failed')));
+
+        self::assertTrue($this->logged->hasWarningThatContains('static_site status not saved'));
+        self::assertCount(1, $this->callbacks);
+    }
+
+    /** The database never stands in the way of the callback: its failure is logged and the client is told anyway. */
+    public function testADatabaseFailureIsLoggedAndTheFailureStillReported(): void
+    {
+        $this->statusUpdateResult = static fn (): int => throw new \RuntimeException('connection refused');
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedEvent(new \RuntimeException('Extracting failed')));
+
+        self::assertTrue($this->logged->hasErrorThatContains('Could not save static_site status in the database'));
+        self::assertCount(1, $this->callbacks);
+        self::assertSame('failed', $this->callbacks[0]['status'] ?? null);
     }
 
     // --- what the client is told ------------------------------------------
@@ -366,6 +414,7 @@ final class BuildFailureHandlerTest extends TestCase
         $handler = new BuildFailureHandler(
             $this->jobWorkspace(),
             new StatusNotifier($this->callbackClient, $this->logger(), timeoutSeconds: 5, maxDurationSeconds: 10, maxRedirects: 0),
+            $this->statusStore(),
             $this->logger(),
             '/srv',
             '/srv/pages',

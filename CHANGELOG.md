@@ -14,6 +14,8 @@ Update together with publish, which stores every site in its `static_site` table
 
 - `DATABASE_URL`, required: publish's Postgres. The worker connects through Doctrine DBAL, without
   an ORM and without a schema of its own. The images ship `pdo_pgsql`.
+- A build sets its site's `static_site.status` to `published`, or `failed` once it fails for good,
+  before the callback, and only while the entry still names this build.
 
 ## [0.6.0] - 2026-11-15
 

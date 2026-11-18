@@ -5,19 +5,21 @@ declare(strict_types=1);
 namespace App\Message;
 
 use App\Job\JobWorkspace;
+use App\Job\StaticSiteStatusStore;
 use App\Job\StatusNotifier;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\Messenger\Event\WorkerMessageFailedEvent;
 
 /**
- * Handles the failure of a build by clearing the job workspace and notifying the status callback.
+ * Handles the failure of a build by clearing the job workspace, saving it in static_site and notifying the status callback.
  * Via the getSubscribedEvents method it subscribes to the WorkerMessageFailedEvent to handle build failures with the onMessageFailed method.
  * Setting a low priority ensures that the message is handled after the SendFailedMessageForRetryListener has had a chance to set the retry flag.
  * Before sending the notification the error message is redacted to strip out any sensitive information.
  *
  * @param JobWorkspace $jobWorkspace The job workspace helper class.
  * @param StatusNotifier $statusNotifier The notifier to use to notify the status callback.
+ * @param StaticSiteStatusStore $statusStore Saves the failure in publish's static_site table.
  * @param LoggerInterface $logger The app logger.
  * @param string $buildsDir The build temp directory.
  * @param string $pagesDir The published directory.
@@ -36,6 +38,7 @@ final class BuildFailureHandler implements EventSubscriberInterface
     public function __construct(
         private readonly JobWorkspace $jobWorkspace,
         private readonly StatusNotifier $statusNotifier,
+        private readonly StaticSiteStatusStore $statusStore,
         private readonly LoggerInterface $logger,
         string $buildsDir,
         string $pagesDir,
@@ -81,6 +84,15 @@ final class BuildFailureHandler implements EventSubscriberInterface
         $this->logger->error('Build failed', ['exception' => $error]);
 
         $this->jobWorkspace->clear($buildJob->build_id);
+
+        // Before the callback, and never in its way: the callback is sent even if the database fails.
+        try {
+            if (!$this->statusStore->markFailed($buildJob->static_site_id, $buildJob->build_id)) {
+                $this->logger->warning('static_site status not saved', ['reason' => 'no static_site entry for this build']);
+            }
+        } catch (\Throwable $e) {
+            $this->logger->error('Could not save static_site status in the database', ['status' => 'failed', 'exception' => $e]);
+        }
 
         try {
             $this->statusNotifier->notifyFailed(

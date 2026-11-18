@@ -8,13 +8,14 @@ use App\Job\ArchiveExtractor;
 use App\Job\ContentDownloader;
 use App\Job\JobWorkspace;
 use App\Job\SiteRenderer;
+use App\Job\StaticSiteStatusStore;
 use App\Job\StatusNotifier;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Messenger\Exception\UnrecoverableMessageHandlingException;
 
 /**
  * Builds a job received from publish API via symfony messenger:
- *  download, extract, render, publish, report.
+ *  download, extract, render, publish, save, report.
  *
  * A build that fails exits this method by throwing, not by returning an
  * error, and which exception type is thrown decides what Messenger does
@@ -32,6 +33,7 @@ use Symfony\Component\Messenger\Exception\UnrecoverableMessageHandlingException;
  * @param SiteRenderer $siteRenderer The site renderer to use to render the content.
  * @param JobWorkspace $jobWorkspace The job workspace to use to manage the job workspace.
  * @param StatusNotifier $statusNotifier The status notifier to use to notify the status of the build.
+ * @param StaticSiteStatusStore $statusStore Saves the result in publish's static_site table.
  * @param LoggerInterface $logger The app logger.
  *
  * Registered as a message handler in services.yaml rather than via
@@ -45,6 +47,7 @@ final class BuildJobHandler
         private readonly SiteRenderer $siteRenderer,
         private readonly JobWorkspace $jobWorkspace,
         private readonly StatusNotifier $statusNotifier,
+        private readonly StaticSiteStatusStore $statusStore,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -69,6 +72,13 @@ final class BuildJobHandler
                 'duration_ms' => intdiv(hrtime(true) - $startedAt, 1_000_000),
                 'url' => $publishUrl,
             ]);
+
+            // Before the callback too, so the database holds the result even if the callback fails;
+            // a database error is retried like any other environment error.
+            if (!$this->statusStore->markPublished($buildJob->static_site_id, $buildJob->build_id)) {
+                $this->logger->warning('static_site status not saved', ['reason' => 'no static_site entry for this build']);
+            }
+
             $this->statusNotifier->notifyPublished(
                 callbackStatusUrl: $buildJob->callback_status_url,
                 publishUrl: $publishUrl,

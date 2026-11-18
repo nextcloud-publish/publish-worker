@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Message;
 
 use App\Tests\DecodesJson;
+use App\Tests\StubsStatusStore;
 use App\Job\ArchiveExtractor;
 use App\Job\ContentDownloader;
 use App\Job\Filesystem;
@@ -37,6 +38,7 @@ use Symfony\Component\Messenger\Exception\UnrecoverableMessageHandlingException;
 final class BuildJobHandlerTest extends TestCase
 {
     use DecodesJson;
+    use StubsStatusStore;
 
     private const SITE_ID = '11f5b798-6f34-4951-ad8b-bfd623ded5c2';
     private const BUILD_ID = '0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b';
@@ -153,6 +155,7 @@ final class BuildJobHandlerTest extends TestCase
             new SiteRenderer(),
             $workspace,
             new StatusNotifier($this->callbackClient, $this->logger(), timeoutSeconds: 5, maxDurationSeconds: 10, maxRedirects: 0),
+            $this->statusStore(),
             $this->logger(),
         );
     }
@@ -310,6 +313,53 @@ final class BuildJobHandlerTest extends TestCase
         ], $this->onlyCallback());
     }
 
+    /** Saved before the callback, so the database holds the result even when the callback fails and the build is retried. */
+    public function testSavesThePublishedSiteBeforeReportingIt(): void
+    {
+        $callbacksBefore = null;
+        $this->statusUpdateResult = function () use (&$callbacksBefore): int {
+            $callbacksBefore = \count($this->callbacks);
+
+            return 1;
+        };
+
+        ($this->buildJobHandler())($this->job());
+
+        self::assertSame(
+            [['published', self::SITE_ID, self::BUILD_ID]],
+            $this->statusUpdates,
+        );
+        self::assertSame(0, $callbacksBefore, 'the status is saved before the callback');
+        self::assertCount(1, $this->callbacks);
+    }
+
+    /** A newer build or a deleted site is no reason to fail this one: it is logged, and the client still hears of it. */
+    public function testASiteWithoutThisBuildIsLoggedAndStillReported(): void
+    {
+        $this->statusUpdateResult = static fn (): int => 0;
+
+        ($this->buildJobHandler())($this->job());
+
+        self::assertTrue($this->logged->hasWarningThatContains('static_site status not saved'));
+        self::assertSame('published', $this->onlyCallback()['status']);
+    }
+
+    /** A database outage is an environment error like any other: the build is retried and nothing is reported. */
+    public function testADatabaseFailureIsRethrownForARetry(): void
+    {
+        $this->statusUpdateResult = static fn (): int => throw new \RuntimeException('connection refused');
+
+        try {
+            ($this->buildJobHandler())($this->job());
+            self::fail('Expected the database failure to be rethrown so Messenger can redeliver it.');
+        } catch (\RuntimeException $e) {
+            self::assertSame('connection refused', $e->getMessage());
+            self::assertNotInstanceOf(UnrecoverableMessageHandlingException::class, $e);
+        }
+
+        self::assertSame([], $this->callbacks);
+    }
+
     /** The log is the only record a successful job leaves, so it has to name the folder, or it says neither which job nor which volume. */
     public function testLogsThePreparedWorkdir(): void
     {
@@ -388,6 +438,7 @@ final class BuildJobHandlerTest extends TestCase
         }
 
         self::assertSame([], $this->callbacks, 'the handler never reports an outcome itself');
+        self::assertSame([], $this->statusUpdates, 'nor saves one');
     }
 
     /** The next attempt's reset() wipes the workdir, and clearing it here would throw away a build still in flight. */

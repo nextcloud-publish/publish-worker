@@ -57,8 +57,9 @@ serializer and never reaches the handler. The fields the handler reads:
 
 `created_at` is decoded but never read.
 
-publish checks every field before it enqueues a job: `static_site_id` and `slug` match
-`[A-Za-z0-9_-]{1,128}`, both URLs are `http` or `https` with a host. The worker uses the
+publish checks every field before it enqueues a job: `static_site_id` is a lower-case UUID,
+`slug` matches `[A-Za-z0-9_-]{1,128}` and is unique across sites, and both URLs are `http` or
+`https` with a host. The worker uses the
 fields without checking them again, and `static_site_id`, `build_id` and `slug` become
 directory names. `slug` and `title` are separate fields because the slug excludes spaces.
 
@@ -73,9 +74,9 @@ directory, so reusing one would republish pages that were deleted from the colle
 
 | Outcome           | What happens                                                                                                                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Success           | `PAGES_DIR/<static_site_id>/` is replaced by one holding only `<slug>/`, the build tree is cleared, and `published` is PATCHed with the `publish_url`                         |
-| Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed` |
-| Permanent failure | reported `failed` on the first delivery, never retried. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
+| Success           | `PAGES_DIR/<static_site_id>/` is replaced by one holding only `<slug>/`, the build tree is cleared, and `published` is PATCHed with the `publish_url`, after `static_site.status` is set to `published` |
+| Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed`, after setting `static_site.status` to `failed` |
+| Permanent failure | reported `failed`, and saved in `static_site.status`, on the first delivery, never retried. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
 
 The callback body is `{"status": "published", "data": {"publish_url": ...}}` or
 `{"status": "failed", "data": {"error_message": ...}}`, nothing else.
@@ -94,6 +95,8 @@ treat a terminal status as final. The payload is specified in
 - [Docker](https://www.docker.com/) with Compose v2 for the containerized dev stack.
 - A running `publish` RabbitMQ broker (see [Docker](#docker)). This repo does not run
   its own, and the broker must declare the `delays` exchange.
+- publish's Postgres, migrated by publish. The worker owns no schema: it only sets
+  `static_site.status` to `published` or `failed` for the build publish enqueued last.
 
 ## Environment variables
 
@@ -269,6 +272,9 @@ The tests need a Postgres on the host, the same one publish's tests use (`.env.t
 php bin/console doctrine:database:create --env=test --if-not-exists
 ```
 
+`StaticSiteStatusStoreTest` recreates `static_site` from `tests/fixtures/static_site.sql`, a copy
+of publish's migration. Update the copy when publish changes the table.
+
 The tests use real collaborators rather than mocks, because the classes are `final` and PHP
 cannot mock them. `MockHttpClient` replaces the network and a temp directory replaces the
 volumes. Status codes, broken transfers, traversal attempts, staging and the swap,
@@ -322,6 +328,7 @@ src/
     ArchiveExtractor.php        unpacks the archive into input/content_unarchived
     SiteRenderer.php            renders the extracted pages into output/
     StatusNotifier.php          PATCHes the outcome to callback_status_url
+    StaticSiteStatusStore.php   sets static_site.status in publish's database, fenced on build_id
     Filesystem.php              filesystem helpers; every error carries the OS message
   Message/
     BuildJob.php                the message shape for q.builds, mirroring publish's message class
