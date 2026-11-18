@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Update together with publish, which stores every site in its `static_site` table and passes
+`DATABASE_URL` to the worker. The worker needs it: without it the first build fails.
+
+### Added
+
+- `DATABASE_URL`, required: publish's Postgres. The worker connects through Doctrine DBAL, without
+  an ORM and without a schema of its own. The images ship `pdo_pgsql`.
+
 ## [0.6.0] - 2026-11-15
 
 The storage roots are `BUILDS_DIR` and `PAGES_DIR`, with the defaults `var/builds` and `var/pages`.

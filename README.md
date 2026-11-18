@@ -101,6 +101,7 @@ treat a terminal status as final. The payload is specified in
 | ------------------------------- | -------- | ---------------------- | ------------------------------------------------------------------------------------------------ |
 | `AMQP_DSN`                      | yes      | none                   | RabbitMQ connection string, e.g. `amqp://publish:secret@rabbitmq:5672/%2f`                       |
 | `AMQP_HEARTBEAT`                | no       | `10`                   | AMQP heartbeat in seconds; must match the broker's setting                                       |
+| `DATABASE_URL`                  | yes      | none                   | publish's Postgres, e.g. `postgresql://publish:secret@postgres:5432/publish?serverVersion=18`    |
 | `BUILDS_DIR`                    | no       | `var/builds`           | Build scratch root. The worker creates `<build_id>/input` and `/output` under it                 |
 | `PAGES_DIR`                     | no       | `var/pages`            | Where finished sites are published, as `<static_site_id>/<slug>/`. An external nginx serves this |
 | `PUBLISH_BASE_URL`              | yes      | none                   | The public URL `PAGES_DIR` is served at. `publish_url` is `<base>/<static_site_id>/<slug>/`      |
@@ -261,6 +262,13 @@ before updating, follows the pull command.
 php bin/phpunit
 ```
 
+The tests need a Postgres on the host, the same one publish's tests use (`.env.test`: user
+`publish`, password `secret`). They run in their own database, `publish_worker_test`; create it once:
+
+```bash
+php bin/console doctrine:database:create --env=test --if-not-exists
+```
+
 The tests use real collaborators rather than mocks, because the classes are `final` and PHP
 cannot mock them. `MockHttpClient` replaces the network and a temp directory replaces the
 volumes. Status codes, broken transfers, traversal attempts, staging and the swap,
@@ -303,6 +311,7 @@ docker/
   php/php.ini                   the time zone; prod and dev
 config/
   packages/messenger.yaml       builds transport and retry_strategy
+  packages/doctrine.yaml        DBAL only: the connection to publish's Postgres
   packages/property_info.yaml   constructor extractor, so BuildJob can be built
   services.yaml                 the two storage roots, SSRF-guarded http client
 src/
@@ -319,6 +328,9 @@ src/
     BuildJobHandler.php         registered in services.yaml, runs the build and reports it published
     BuildFailureHandler.php     reports a build that ran out of attempts, deletes it, and keeps
                                 volume paths out of what the client is sent
+  Messenger/
+    FreshDatabaseConnection.php closes the database connection when a message arrives, so a
+                                build never runs on a connection that died while the worker idled
   Logging/
     BuildContextProcessor.php   adds the build being handled to every log line
     SentryMessageContext.php    gives every message its own Sentry breadcrumbs

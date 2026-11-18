@@ -6,10 +6,15 @@ namespace App\Tests\Messenger;
 
 use App\Message\BuildJob;
 use App\Message\BuildFailureHandler;
+use App\Messenger\FreshDatabaseConnection;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\Event\WorkerMessageFailedEvent;
+use Symfony\Component\Messenger\Event\WorkerMessageReceivedEvent;
+use Symfony\Component\Messenger\Exception\NoHandlerForMessageException;
 use Symfony\Component\Messenger\Retry\RetryStrategyInterface;
+use Symfony\Component\Messenger\Stamp\ConsumedByWorkerStamp;
+use Symfony\Component\Messenger\Stamp\ReceivedStamp;
 use Symfony\Component\Messenger\Stamp\RedeliveryStamp;
 use Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport;
 
@@ -118,5 +123,37 @@ final class MessengerConfigTest extends KernelTestCase
         );
 
         self::assertContains(BuildFailureHandler::class, $classes);
+    }
+
+    /** Registered by autoconfiguration, like the failure reporter: without it a dead connection breaks every later build. */
+    public function testTheFreshConnectionListenerIsSubscribedToTheWorkerEvent(): void
+    {
+        self::bootKernel();
+
+        $listeners = self::getContainer()
+            ->get('event_dispatcher')
+            ->getListeners(WorkerMessageReceivedEvent::class);
+
+        $classes = array_map(
+            static fn (callable $l): string => get_debug_type(\is_array($l) ? $l[0] : $l),
+            $listeners,
+        );
+
+        self::assertContains(FreshDatabaseConnection::class, $classes);
+    }
+
+    /**
+     * A message the worker received passes every middleware of the bus and reaches the handler lookup.
+     * The kernel tests otherwise never run the middleware stack a consumed message runs: an ORM-only
+     * middleware such as doctrine_ping_connection failed every build in the dev stack while the suite stayed green.
+     */
+    public function testTheBusLetsAReceivedMessageThroughToTheHandlers(): void
+    {
+        self::bootKernel();
+        $bus = self::getContainer()->get('messenger.bus.default');
+
+        // No handler takes a stdClass, so getting this far is the proof.
+        $this->expectException(NoHandlerForMessageException::class);
+        $bus->dispatch(new Envelope(new \stdClass(), [new ReceivedStamp('builds'), new ConsumedByWorkerStamp()]));
     }
 }

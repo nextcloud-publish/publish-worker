@@ -19,7 +19,10 @@ env:
   BUILDS_DIR: /tmp/publish-worker-ci/builds
   PAGES_DIR: /tmp/publish-worker-ci/pages
   PUBLISH_BASE_URL: http://sites.test
-  PHP_EXTENSIONS: ctype, iconv, amqp, pcntl, mbstring, json, phar, zlib
+  # The postgres service of the test job. lint:container and cache:warmup never connect: serverVersion
+  # names the platform.
+  DATABASE_URL: postgresql://publish:secret@127.0.0.1:5432/publish?serverVersion=18&charset=utf8
+  PHP_EXTENSIONS: ctype, iconv, amqp, pcntl, mbstring, json, phar, zlib, pdo_pgsql
 
 jobs:
   lint:
@@ -63,6 +66,21 @@ jobs:
   test:
     name: Tests
     runs-on: ubuntu-latest
+    services:
+      # Same credentials as publish's CI. StaticSiteStatusStoreTest creates its own static_site table.
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: publish
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: publish
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U publish -d publish"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v7
 
@@ -75,6 +93,10 @@ jobs:
 
       - name: Install dependencies
         uses: ramsey/composer-install@v4
+
+      # dbname_suffix in config/packages/doctrine.yaml makes this publish_worker_test.
+      - name: Prepare test database
+        run: php bin/console doctrine:database:create --env=test --if-not-exists
 
       - name: PHPUnit
         run: vendor/bin/phpunit
