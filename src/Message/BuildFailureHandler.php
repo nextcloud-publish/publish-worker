@@ -12,14 +12,15 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\Messenger\Event\WorkerMessageFailedEvent;
 
 /**
- * Handles the failure of a build by clearing the job workspace, saving it in static_site and notifying the status callback.
+ * Handles the failure of a build by clearing the job workspace, removing whatever the build left behind (its published site and
+ * its static_site entry) and then notifying the status callback, so the client can POST the site again without a conflict.
  * Via the getSubscribedEvents method it subscribes to the WorkerMessageFailedEvent to handle build failures with the onMessageFailed method.
  * Setting a low priority ensures that the message is handled after the SendFailedMessageForRetryListener has had a chance to set the retry flag.
  * Before sending the notification the error message is redacted to strip out any sensitive information.
  *
  * @param JobWorkspace $jobWorkspace The job workspace helper class.
  * @param StatusNotifier $statusNotifier The notifier to use to notify the status callback.
- * @param StaticSiteStatusStore $statusStore Saves the failure in publish's static_site table.
+ * @param StaticSiteStatusStore $statusStore Deletes the build's entry from publish's static_site table.
  * @param LoggerInterface $logger The app logger.
  * @param string $buildsDir The build temp directory.
  * @param string $pagesDir The published directory.
@@ -85,13 +86,18 @@ final class BuildFailureHandler implements EventSubscriberInterface
 
         $this->jobWorkspace->clear($buildJob->build_id);
 
-        // Before the callback, and never in its way: the callback is sent even if the database fails.
+        // Everything the build left behind goes before the callback, so the client's next POST of the
+        // site finds no entry in its way. The files go first: if the database then fails, nothing
+        // unowned stays published. Neither step stands in the way of the callback.
+        $this->jobWorkspace->unpublish($buildJob->static_site_id);
+
         try {
-            if (!$this->statusStore->markFailed($buildJob->static_site_id, $buildJob->build_id)) {
-                $this->logger->warning('static_site status not saved', ['reason' => 'no static_site entry for this build']);
+            if (!$this->statusStore->deleteSite($buildJob->static_site_id, $buildJob->build_id)) {
+                $this->logger->warning('static_site entry not deleted', ['reason' => 'no static_site entry for this build']);
             }
         } catch (\Throwable $e) {
-            $this->logger->error('Could not save static_site status in the database', ['status' => 'failed', 'exception' => $e]);
+            // The entry stays, and the client's next POST of the site gets a 409 until it is removed.
+            $this->logger->error('Could not delete static_site entry in the database', ['exception' => $e]);
         }
 
         try {

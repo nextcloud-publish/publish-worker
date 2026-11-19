@@ -317,7 +317,7 @@ final class BuildJobHandlerTest extends TestCase
     public function testSavesThePublishedSiteBeforeReportingIt(): void
     {
         $callbacksBefore = null;
-        $this->statusUpdateResult = function () use (&$callbacksBefore): int {
+        $this->statementResult = function () use (&$callbacksBefore): int {
             $callbacksBefore = \count($this->callbacks);
 
             return 1;
@@ -326,8 +326,8 @@ final class BuildJobHandlerTest extends TestCase
         ($this->buildJobHandler())($this->job());
 
         self::assertSame(
-            [['published', self::SITE_ID, self::BUILD_ID]],
-            $this->statusUpdates,
+            [['UPDATE', self::SITE_ID, self::BUILD_ID]],
+            $this->statements,
         );
         self::assertSame(0, $callbacksBefore, 'the status is saved before the callback');
         self::assertCount(1, $this->callbacks);
@@ -336,7 +336,7 @@ final class BuildJobHandlerTest extends TestCase
     /** A newer build or a deleted site is no reason to fail this one: it is logged, and the client still hears of it. */
     public function testASiteWithoutThisBuildIsLoggedAndStillReported(): void
     {
-        $this->statusUpdateResult = static fn (): int => 0;
+        $this->statementResult = static fn (): int => 0;
 
         ($this->buildJobHandler())($this->job());
 
@@ -347,7 +347,7 @@ final class BuildJobHandlerTest extends TestCase
     /** A database outage is an environment error like any other: the build is retried and nothing is reported. */
     public function testADatabaseFailureIsRethrownForARetry(): void
     {
-        $this->statusUpdateResult = static fn (): int => throw new \RuntimeException('connection refused');
+        $this->statementResult = static fn (): int => throw new \RuntimeException('connection refused');
 
         try {
             ($this->buildJobHandler())($this->job());
@@ -438,7 +438,7 @@ final class BuildJobHandlerTest extends TestCase
         }
 
         self::assertSame([], $this->callbacks, 'the handler never reports an outcome itself');
-        self::assertSame([], $this->statusUpdates, 'nor saves one');
+        self::assertSame([], $this->statements, 'nor saves one');
     }
 
     /** The next attempt's reset() wipes the workdir, and clearing it here would throw away a build still in flight. */

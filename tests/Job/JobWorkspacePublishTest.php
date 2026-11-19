@@ -305,6 +305,31 @@ final class JobWorkspacePublishTest extends TestCase
         );
     }
 
+    // --- unpublishing a failed build's site --------------------------------
+
+    /** A build that failed after publishing must not leave its site served. */
+    public function testUnpublishRemovesTheSiteAndOnlyThatSite(): void
+    {
+        $this->givenBuildOutput(['index.html' => 'the failed site']);
+        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+
+        $otherSite = '4b6c1e2a-9d3f-4a7b-8c5e-2f1d0a9b8c7d';
+        $otherBuild = '0199a1b2-3c4d-7e5f-8a9b-dddddddddddd';
+        $this->givenBuildOutput(['index.html' => 'another site'], build: $otherBuild);
+        $this->workspace->publish($otherBuild, $otherSite, self::SLUG);
+
+        self::assertTrue($this->workspace->unpublish(self::SITE));
+
+        self::assertDirectoryDoesNotExist($this->workspace->publishSiteDir(self::SITE));
+        self::assertFileExists($this->workspace->publishSiteDir($otherSite) . '/' . self::SLUG . '/index.html');
+    }
+
+    /** A build that failed before publishing has nothing to remove, which is not an error. */
+    public function testUnpublishingASiteThatWasNeverPublishedSucceeds(): void
+    {
+        self::assertTrue($this->workspace->unpublish(self::SITE));
+    }
+
     // --- the cross-mount reality of the dev stack -------------------------
 
     /**

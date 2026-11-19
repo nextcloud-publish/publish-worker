@@ -171,6 +171,29 @@ final class JobWorkspace
     }
 
     /**
+     * Removes the site's published directory, for a build that failed after publishing it.
+     * A site that was never published is nothing to remove.
+     * Logs an error and returns false when that fails, rather than throwing.
+     *
+     * @param string $staticSiteId The site whose published directory to remove.
+     * @return bool true when nothing of the site is published any more, false when removal fails
+     */
+    public function unpublish(string $staticSiteId): bool
+    {
+        $publishSiteDir = $this->publishSiteDir($staticSiteId);
+        $existed = is_dir($publishSiteDir);
+        $removed = $this->filesystem->removeDir($publishSiteDir);
+
+        if (!$removed) {
+            $this->logger->error('Could not remove the published site', ['dir' => $publishSiteDir]);
+        } elseif ($existed) {
+            $this->logger->info('Removed the published site', ['dir' => $publishSiteDir]);
+        }
+
+        return $removed;
+    }
+
+    /**
      * Removes the build's workspace, the input/ and output/ directories.
      * Logs a warning and returns false when that fails, rather than throwing.
      *

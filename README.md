@@ -75,8 +75,8 @@ directory, so reusing one would republish pages that were deleted from the colle
 | Outcome           | What happens                                                                                                                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Success           | `PAGES_DIR/<static_site_id>/` is replaced by one holding only `<slug>/`, the build tree is cleared, and `published` is PATCHed with the `publish_url`, after `static_site.status` is set to `published` |
-| Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed`, after setting `static_site.status` to `failed` |
-| Permanent failure | reported `failed`, and saved in `static_site.status`, on the first delivery, never retried. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
+| Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed`, after removing the published site and deleting the `static_site` entry |
+| Permanent failure | reported `failed` on the first delivery, after the published site and the `static_site` entry are removed, never retried. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
 
 The callback body is `{"status": "published", "data": {"publish_url": ...}}` or
 `{"status": "failed", "data": {"error_message": ...}}`, nothing else.
@@ -95,8 +95,8 @@ treat a terminal status as final. The payload is specified in
 - [Docker](https://www.docker.com/) with Compose v2 for the containerized dev stack.
 - A running `publish` RabbitMQ broker (see [Docker](#docker)). This repo does not run
   its own, and the broker must declare the `delays` exchange.
-- publish's Postgres, migrated by publish. The worker owns no schema: it only sets
-  `static_site.status` to `published` or `failed` for the build publish enqueued last.
+- publish's Postgres, migrated by publish. The worker owns no schema: for the build publish
+  enqueued last it sets `static_site.status` to `published`, or deletes the entry if the build fails.
 
 ## Environment variables
 
@@ -328,7 +328,7 @@ src/
     ArchiveExtractor.php        unpacks the archive into input/content_unarchived
     SiteRenderer.php            renders the extracted pages into output/
     StatusNotifier.php          PATCHes the outcome to callback_status_url
-    StaticSiteStatusStore.php   sets static_site.status in publish's database, fenced on build_id
+    StaticSiteStatusStore.php   sets or deletes the static_site entry in publish's database, fenced on build_id
     Filesystem.php              filesystem helpers; every error carries the OS message
   Message/
     BuildJob.php                the message shape for q.builds, mirroring publish's message class
