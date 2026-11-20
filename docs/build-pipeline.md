@@ -42,8 +42,8 @@ The handler calls `reset()` at the start of every attempt, `publish()` on succes
    `rename()` onto a non-empty directory fails with `ENOTEMPTY`.
 
 `publish()` refuses an empty `output/`, so a build with no pages never replaces a live site.
-The slug is the directory, and publish keeps it unique across sites. The worker does not know a
-site's previous slug, so a slug change on update leaves the old directory served.
+The slug is the directory, and publish keeps it unique across sites. An update keeps the site's
+slug, so it replaces the same directory.
 
 Known limitation: the site answers 404 between the delete and the rename. Nothing records how
 far an attempt got, so a retry rebuilds from the start.
@@ -89,11 +89,16 @@ UPDATE static_site SET status = 'published' WHERE id = :static_site_id AND build
 ```
 
 A create that fails for good leaves nothing behind, so the client can POST the site again without
-a conflict. `BuildFailureHandler` removes `PAGES_DIR/<slug>/`, then the entry. A failed update or
-delete leaves both in place:
+a conflict. `BuildFailureHandler` removes `PAGES_DIR/<slug>/`, then the entry:
 
 ```sql
 DELETE FROM static_site WHERE id = :static_site_id AND build_id = :build_id
+```
+
+An update that fails for good keeps the site published before it and marks the entry:
+
+```sql
+UPDATE static_site SET status = 'failed' WHERE id = :static_site_id AND build_id = :build_id
 ```
 
 `src/Job/StaticSiteStatusStore.php` is the only SQL.

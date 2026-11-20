@@ -20,7 +20,6 @@ namespace App\Message;
  * @param string $created_at Timestamp when the job was created by the publish API.
  * @param ?string $content_download_url Download url for the build assets; set for create and update.
  * @param ?string $title Site title, shown in the page header; set for create and update.
- * @param ?string $previous_slug The site's slug before an update renamed it; null when the slug is unchanged.
  * @param mixed $render_options Any JSON value from the build request, passed to ssg-library, which validates it.
  *                              null when absent.
  */
@@ -35,7 +34,6 @@ final class BuildJob
         public readonly string $created_at,
         public readonly ?string $content_download_url = null,
         public readonly ?string $title = null,
-        public readonly ?string $previous_slug = null,
         public readonly mixed $render_options = null,
     ) {
     }

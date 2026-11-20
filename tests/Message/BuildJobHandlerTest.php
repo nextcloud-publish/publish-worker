@@ -213,6 +213,7 @@ final class BuildJobHandlerTest extends TestCase
      * @param ?string $title The site title to put on the job.
      * @param string $callbackStatusUrl The callback url to put on the job.
      * @param mixed $renderOptions The render options to put on the job.
+     * @param BuildOperation $operation The operation to put on the job.
      * @return BuildJob the message under test
      */
     private function job(
@@ -223,11 +224,12 @@ final class BuildJobHandlerTest extends TestCase
         ?string $title = self::TITLE,
         string $callbackStatusUrl = self::CALLBACK_URL,
         mixed $renderOptions = null,
+        BuildOperation $operation = BuildOperation::Create,
     ): BuildJob {
         return new BuildJob(
             build_id: $buildId,
             static_site_id: $staticSiteId,
-            operation: BuildOperation::Create,
+            operation: $operation,
             slug: $slug,
             content_download_url: $contentDownloadUrl,
             callback_status_url: $callbackStatusUrl,
@@ -503,6 +505,45 @@ final class BuildJobHandlerTest extends TestCase
         }
 
         self::assertSame([], $this->callbacks);
+    }
+
+    // --- update -----------------------------------------------------------
+
+    /**
+     * Leaves a published site under $slug, as an earlier build would.
+     *
+     * @param string $slug The slug to publish under.
+     * @return string the published directory
+     */
+    private function givenAPublishedSite(string $slug): string
+    {
+        mkdir($this->publishedSite($slug), 0o755, true);
+        file_put_contents($this->publishedSite($slug) . '/index.html', 'old version');
+
+        return $this->publishedSite($slug);
+    }
+
+    public function testAnUpdateReplacesThePublishedSiteAndReportsIt(): void
+    {
+        $this->givenAPublishedSite(self::SLUG);
+
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Update));
+
+        self::assertStringNotContainsString('old version', (string) file_get_contents($this->publishedSite() . '/index.html'));
+        self::assertSame([['UPDATE', self::SITE_ID, self::BUILD_ID]], $this->statements);
+        self::assertSame([
+            'status' => 'published',
+            'data' => ['publish_url' => 'http://sites.test/' . self::SLUG . '/'],
+        ], $this->onlyCallback());
+    }
+
+    public function testAnUpdateLeavesOtherSitesAlone(): void
+    {
+        $other = $this->givenAPublishedSite('other-site');
+
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Update));
+
+        self::assertFileExists($other . '/index.html');
     }
 
     // --- the callback is never allowed to fail the message ----------------

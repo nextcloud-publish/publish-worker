@@ -98,17 +98,9 @@ final class BuildJobContractTest extends KernelTestCase
         self::assertSame('My Team Handbook', $build->title);
     }
 
-    public function testDecodesAnUpdateWithItsPreviousSlug(): void
+    public function testDecodesAnUpdate(): void
     {
-        $build = $this->decode([...self::currentPayload(), 'operation' => 'update', 'previous_slug' => 'old-handbook']);
-
-        self::assertSame(BuildOperation::Update, $build->operation);
-        self::assertSame('old-handbook', $build->previous_slug);
-    }
-
-    public function testThePreviousSlugIsNullWhenAbsent(): void
-    {
-        self::assertNull($this->decode(self::currentPayload())->previous_slug);
+        self::assertSame(BuildOperation::Update, $this->decode([...self::currentPayload(), 'operation' => 'update'])->operation);
     }
 
     /** A delete builds nothing, so publish sends no content_download_url and no title. */
@@ -180,7 +172,6 @@ final class BuildJobContractTest extends KernelTestCase
                 'created_at',
                 'content_download_url',
                 'title',
-                'previous_slug',
                 'render_options',
             ],
             array_map(static fn (\ReflectionParameter $p): string => $p->getName(), $parameters),
