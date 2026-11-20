@@ -57,41 +57,69 @@ final class BuildJobHandler
         $startedAt = hrtime(true);
         $this->logger->info('Build started', ['url' => $buildJob->content_download_url]);
 
-        // build, publish and notify success are all inside the same try block to ensure that
-        // a failed build in any step is retried or handled as a failure by Messenger.
+        // Every operation runs inside the same try block, so a failure in any step is retried or
+        // handled as a failure by Messenger.
         try {
-            $pageCount = $this->build($buildJob);
-            $this->jobWorkspace->publish($buildJob->build_id, $buildJob->slug);
-            $this->jobWorkspace->clear($buildJob->build_id);
-
-            $publishUrl = $this->jobWorkspace->publishUrl($buildJob->slug);
-
-            // Before the callback, so the log records the publish even if the callback fails.
-            $this->logger->info('Published site', [
-                'pages' => $pageCount,
-                'duration_ms' => intdiv(hrtime(true) - $startedAt, 1_000_000),
-                'url' => $publishUrl,
-            ]);
-
-            // Before the callback too, so the database holds the result even if the callback fails;
-            // a database error is retried like any other environment error.
-            if (!$this->statusStore->markPublished($buildJob->static_site_id, $buildJob->build_id)) {
-                $this->logger->warning('static_site status not saved', ['reason' => 'no static_site entry for this build']);
+            switch ($buildJob->operation) {
+                case BuildOperation::Create:
+                    $this->create($buildJob, $startedAt);
+                    break;
             }
-
-            $this->statusNotifier->notifyPublished(
-                callbackStatusUrl: $buildJob->callback_status_url,
-                publishUrl: $publishUrl,
-            );
         } catch (\InvalidArgumentException $e) {
             // Marked unrecoverable so the retry strategy is skipped entirely.
             throw new UnrecoverableMessageHandlingException($e->getMessage(), 0, $e);
         }
     }
 
-    /** Download, extract, render. Everything before the site goes live. */
+    /**
+     * Builds and publishes a new site, saves its status and reports it to the callback.
+     *
+     * @param BuildJob $buildJob The create to run.
+     * @param int $startedAt hrtime() when the worker took the job, for the logged duration.
+     * @return void
+     * @throws \InvalidArgumentException if the content, the render options or the callback answer is invalid
+     * @throws \RuntimeException if a step fails in a way the next attempt may not
+     */
+    private function create(BuildJob $buildJob, int $startedAt): void
+    {
+        $pageCount = $this->build($buildJob);
+        $this->jobWorkspace->publish($buildJob->build_id, $buildJob->slug);
+        $this->jobWorkspace->clear($buildJob->build_id);
+
+        $publishUrl = $this->jobWorkspace->publishUrl($buildJob->slug);
+
+        // Before the callback, so the log records the publish even if the callback fails.
+        $this->logger->info('Published site', [
+            'pages' => $pageCount,
+            'duration_ms' => intdiv(hrtime(true) - $startedAt, 1_000_000),
+            'url' => $publishUrl,
+        ]);
+
+        // Before the callback too, so the database holds the result even if the callback fails;
+        // a database error is retried like any other environment error.
+        if (!$this->statusStore->markPublished($buildJob->static_site_id, $buildJob->build_id)) {
+            $this->logger->warning('static_site status not saved', ['reason' => 'no static_site entry for this build']);
+        }
+
+        $this->statusNotifier->notifyPublished(
+            callbackStatusUrl: $buildJob->callback_status_url,
+            publishUrl: $publishUrl,
+        );
+    }
+
+    /**
+     * Downloads, extracts and renders the site: everything before it goes live.
+     *
+     * @param BuildJob $buildJob The create or update to build.
+     * @return int number of rendered pages
+     * @throws \InvalidArgumentException if $buildJob has no content_download_url or no title
+     */
     private function build(BuildJob $buildJob): int
     {
+        if ($buildJob->content_download_url === null || $buildJob->title === null) {
+            throw new \InvalidArgumentException(sprintf('A %s job needs content_download_url and title.', $buildJob->operation->value));
+        }
+
         /** Clear any previous attempt to avoid any mess when mixing up builds. */
         $buildJobDir = $this->jobWorkspace->reset($buildJob->build_id);
         $this->logger->debug('Prepared job directory', ['dir' => $buildJobDir]);

@@ -88,8 +88,9 @@ status:
 UPDATE static_site SET status = 'published' WHERE id = :static_site_id AND build_id = :build_id
 ```
 
-A build that fails for good leaves nothing behind, so the client can POST the site again without
-a conflict. `BuildFailureHandler` removes `PAGES_DIR/<slug>/`, then the entry:
+A create that fails for good leaves nothing behind, so the client can POST the site again without
+a conflict. `BuildFailureHandler` removes `PAGES_DIR/<slug>/`, then the entry. A failed update or
+delete leaves both in place:
 
 ```sql
 DELETE FROM static_site WHERE id = :static_site_id AND build_id = :build_id

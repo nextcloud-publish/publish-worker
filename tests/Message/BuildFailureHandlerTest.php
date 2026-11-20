@@ -11,6 +11,7 @@ use App\Job\JobWorkspace;
 use App\Job\StatusNotifier;
 use App\Message\BuildFailureHandler;
 use App\Message\BuildJob;
+use App\Message\BuildOperation;
 use Monolog\Handler\TestHandler;
 use Monolog\LogRecord;
 use Monolog\Logger;
@@ -119,13 +120,18 @@ final class BuildFailureHandlerTest extends TestCase
      *
      * @param string $staticSiteId The static site id to put on the job.
      * @param string $callbackStatusUrl The callback url to put on the job.
+     * @param BuildOperation $operation The operation to put on the job.
      * @return BuildJob the message under test
      */
-    private function job(string $staticSiteId = self::SITE_ID, string $callbackStatusUrl = self::CALLBACK_URL): BuildJob
-    {
+    private function job(
+        string $staticSiteId = self::SITE_ID,
+        string $callbackStatusUrl = self::CALLBACK_URL,
+        BuildOperation $operation = BuildOperation::Create,
+    ): BuildJob {
         return new BuildJob(
             build_id: self::BUILD_ID,
             static_site_id: $staticSiteId,
+            operation: $operation,
             slug: self::SLUG,
             content_download_url: 'https://cloud.example.org/export.tar.gz',
             callback_status_url: $callbackStatusUrl,
@@ -246,6 +252,20 @@ final class BuildFailureHandlerTest extends TestCase
         $this->buildFailureHandler()->onMessageFailed($this->failedEvent(new \RuntimeException('callback rejected')));
 
         self::assertDirectoryDoesNotExist($publishSiteDir);
+    }
+
+    /** The site an update would have replaced is still the live one, so it stays published with its entry. */
+    public function testAFailedUpdateKeepsThePublishedSiteAndItsEntry(): void
+    {
+        $publishSiteDir = $this->givenAPublishedSite();
+
+        $this->buildFailureHandler()->onMessageFailed(
+            $this->failedEvent(new \RuntimeException('Extracting failed'), message: $this->job(operation: BuildOperation::Update)),
+        );
+
+        self::assertDirectoryExists($publishSiteDir);
+        self::assertSame([], $this->statements);
+        self::assertCount(1, $this->callbacks);
     }
 
     /** A newer build or a deleted site is logged; the client still hears of the failure. */

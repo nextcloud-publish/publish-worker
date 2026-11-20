@@ -12,8 +12,9 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\Messenger\Event\WorkerMessageFailedEvent;
 
 /**
- * Handles the failure of a build by clearing the job workspace, removing whatever the build left behind (its published site and
+ * Handles the failure of a build by clearing the job workspace, removing whatever a failed create left behind (its published site and
  * its static_site entry) and then notifying the status callback, so the client can POST the site again without a conflict.
+ * A failed update or delete leaves the published site and the entry as they are.
  * Via the getSubscribedEvents method it subscribes to the WorkerMessageFailedEvent to handle build failures with the onMessageFailed method.
  * Setting a low priority ensures that the message is handled after the SendFailedMessageForRetryListener has had a chance to set the retry flag.
  * Before sending the notification the error message is redacted to strip out any sensitive information.
@@ -86,18 +87,10 @@ final class BuildFailureHandler implements EventSubscriberInterface
 
         $this->jobWorkspace->clear($buildJob->build_id);
 
-        // Everything the build left behind goes before the callback, so the client's next POST of the
-        // site finds no entry in its way. The files go first: if the database then fails, nothing
-        // unowned stays published. Neither step stands in the way of the callback.
-        $this->jobWorkspace->unpublish($buildJob->slug);
-
-        try {
-            if (!$this->statusStore->deleteSite($buildJob->static_site_id, $buildJob->build_id)) {
-                $this->logger->warning('static_site entry not deleted', ['reason' => 'no static_site entry for this build']);
-            }
-        } catch (\Throwable $e) {
-            // The entry stays, and the client's next POST of the site gets a 409 until it is removed.
-            $this->logger->error('Could not delete static_site entry in the database', ['exception' => $e]);
+        switch ($buildJob->operation) {
+            case BuildOperation::Create:
+                $this->removeFailedCreate($buildJob);
+                break;
         }
 
         try {
@@ -107,6 +100,28 @@ final class BuildFailureHandler implements EventSubscriberInterface
             );
         } catch (\Throwable $e) {
             $this->logger->error('Could not report failed build', ['exception' => $e]);
+        }
+    }
+
+    /**
+     * Removes what a failed create left behind: its published site and its static_site entry.
+     * Both go before the callback, so the client's next POST of the site finds no entry in its way.
+     * The files go first: if the database then fails, nothing unowned stays published.
+     *
+     * @param BuildJob $buildJob The create that failed.
+     * @return void
+     */
+    private function removeFailedCreate(BuildJob $buildJob): void
+    {
+        $this->jobWorkspace->unpublish($buildJob->slug);
+
+        try {
+            if (!$this->statusStore->deleteSite($buildJob->static_site_id, $buildJob->build_id)) {
+                $this->logger->warning('static_site entry not deleted', ['reason' => 'no static_site entry for this build']);
+            }
+        } catch (\Throwable $e) {
+            // The entry stays, and the client's next POST of the site gets a 409 until it is removed.
+            $this->logger->error('Could not delete static_site entry in the database', ['exception' => $e]);
         }
     }
 

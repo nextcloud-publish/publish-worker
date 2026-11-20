@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Messenger;
 
 use App\Message\BuildJob;
+use App\Message\BuildOperation;
 use App\Message\BuildFailureHandler;
 use App\Messenger\FreshDatabaseConnection;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
@@ -58,6 +59,7 @@ final class MessengerConfigTest extends KernelTestCase
         $job = new BuildJob(
             build_id: '16ef078ad37fd894',
             static_site_id: '11f5b798-6f34-4951-ad8b-bfd623ded5c2',
+            operation: BuildOperation::Create,
             slug: 'demo-site',
             content_download_url: 'https://cloud.example.org/export.tar.gz',
             callback_status_url: 'https://cloud.example.org/status',

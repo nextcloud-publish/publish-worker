@@ -13,6 +13,7 @@ use App\Job\JobWorkspace;
 use App\Job\SiteRenderer;
 use App\Job\StatusNotifier;
 use App\Message\BuildJob;
+use App\Message\BuildOperation;
 use App\Message\BuildJobHandler;
 use Monolog\Handler\TestHandler;
 use Monolog\Level;
@@ -207,9 +208,9 @@ final class BuildJobHandlerTest extends TestCase
      *
      * @param string $staticSiteId The static site id to put on the job.
      * @param string $slug The slug to put on the job.
-     * @param string $contentDownloadUrl The archive url to put on the job.
+     * @param ?string $contentDownloadUrl The archive url to put on the job.
      * @param string $buildId The build id to put on the job.
-     * @param string $title The site title to put on the job.
+     * @param ?string $title The site title to put on the job.
      * @param string $callbackStatusUrl The callback url to put on the job.
      * @param mixed $renderOptions The render options to put on the job.
      * @return BuildJob the message under test
@@ -217,15 +218,16 @@ final class BuildJobHandlerTest extends TestCase
     private function job(
         string $staticSiteId = self::SITE_ID,
         string $slug = self::SLUG,
-        string $contentDownloadUrl = self::CONTENT_URL,
+        ?string $contentDownloadUrl = self::CONTENT_URL,
         string $buildId = self::BUILD_ID,
-        string $title = self::TITLE,
+        ?string $title = self::TITLE,
         string $callbackStatusUrl = self::CALLBACK_URL,
         mixed $renderOptions = null,
     ): BuildJob {
         return new BuildJob(
             build_id: $buildId,
             static_site_id: $staticSiteId,
+            operation: BuildOperation::Create,
             slug: $slug,
             content_download_url: $contentDownloadUrl,
             callback_status_url: $callbackStatusUrl,
@@ -486,6 +488,21 @@ final class BuildJobHandlerTest extends TestCase
             self::assertStringContainsString('render_options must be a JSON object', $e->getMessage());
             self::assertInstanceOf(\InvalidArgumentException::class, $e->getPrevious());
         }
+    }
+
+    /** publish sends both for a create; a job without one would fail the same way on every attempt. */
+    public function testACreateWithoutContentOrTitleIsTerminal(): void
+    {
+        foreach ([$this->job(contentDownloadUrl: null), $this->job(title: null)] as $job) {
+            try {
+                ($this->buildJobHandler())($job);
+                self::fail('Expected a create without content_download_url or title to be refused.');
+            } catch (UnrecoverableMessageHandlingException $e) {
+                self::assertStringContainsString('needs content_download_url and title', $e->getMessage());
+            }
+        }
+
+        self::assertSame([], $this->callbacks);
     }
 
     // --- the callback is never allowed to fail the message ----------------
