@@ -62,17 +62,10 @@ final class BuildJobHandler
         // Every operation runs inside the same try block, so a failure in any step is retried or
         // handled as a failure by Messenger.
         try {
-            switch ($buildJob->operation) {
-                case BuildOperation::Create:
-                    $this->create($buildJob, $startedAt);
-                    break;
-                case BuildOperation::Update:
-                    $this->update($buildJob, $startedAt);
-                    break;
-                case BuildOperation::Delete:
-                    $this->delete($buildJob);
-                    break;
-            }
+            match ($buildJob->operation) {
+                BuildOperation::Create, BuildOperation::Update => $this->publishBuild($buildJob, $startedAt),
+                BuildOperation::Delete => $this->delete($buildJob),
+            };
         } catch (\InvalidArgumentException $e) {
             // Marked unrecoverable so the retry strategy is skipped entirely.
             throw new UnrecoverableMessageHandlingException($e->getMessage(), 0, $e);
@@ -80,52 +73,16 @@ final class BuildJobHandler
     }
 
     /**
-     * Builds and publishes a new site, saves its status and reports it to the callback.
+     * Builds and publishes a create or an update, saves its status and reports it to the callback.
+     * For an update with a new slug, the directory under the previous slug is removed after the swap.
      *
-     * @param BuildJob $buildJob The create to run.
+     * @param BuildJob $buildJob The create or update to run.
      * @param int $startedAt hrtime() when the worker took the job, for the logged duration.
      * @return void
      * @throws \InvalidArgumentException if the content, the render options or the callback answer is invalid
      * @throws \RuntimeException if a step fails in a way the next attempt may not
      */
-    private function create(BuildJob $buildJob, int $startedAt): void
-    {
-        $pageCount = $this->build($buildJob);
-        $this->jobWorkspace->publish($buildJob->build_id, $buildJob->slug);
-        $this->jobWorkspace->clear($buildJob->build_id);
-
-        $publishUrl = $this->jobWorkspace->publishUrl($buildJob->slug);
-
-        // Before the callback, so the log records the publish even if the callback fails.
-        $this->logger->info('Published site', [
-            'pages' => $pageCount,
-            'duration_ms' => intdiv(hrtime(true) - $startedAt, 1_000_000),
-            'url' => $publishUrl,
-        ]);
-
-        // Before the callback too, so the database holds the result even if the callback fails;
-        // a database error is retried like any other environment error.
-        if (!$this->statusStore->markPublished($buildJob->static_site_id, $buildJob->build_id)) {
-            $this->logger->warning('static_site status not saved', ['reason' => 'no static_site entry for this build']);
-        }
-
-        $this->statusNotifier->notifyPublished(
-            callbackStatusUrl: $buildJob->callback_status_url,
-            publishUrl: $publishUrl,
-        );
-    }
-
-    /**
-     * Builds and publishes a new version of a site, saves its status and reports it to the callback.
-     * When the slug changed, the directory under the previous slug is removed after the swap.
-     *
-     * @param BuildJob $buildJob The update to run.
-     * @param int $startedAt hrtime() when the worker took the job, for the logged duration.
-     * @return void
-     * @throws \InvalidArgumentException if the content, the render options or the callback answer is invalid
-     * @throws \RuntimeException if a step fails in a way the next attempt may not
-     */
-    private function update(BuildJob $buildJob, int $startedAt): void
+    private function publishBuild(BuildJob $buildJob, int $startedAt): void
     {
         $pageCount = $this->build($buildJob);
         $this->jobWorkspace->publish($buildJob->build_id, $buildJob->slug);
