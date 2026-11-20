@@ -77,8 +77,8 @@ directory, so reusing one would republish pages that were deleted from the colle
 | Outcome           | What happens                                                                                                                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Success           | `PAGES_DIR/<slug>/` is replaced, the build tree is cleared, and `published` is PATCHed with the `publish_url`, after `static_site.status` is set to `published` |
-| Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed`; for a create it first removes the published site and the `static_site` entry |
-| Permanent failure | reported `failed` on the first delivery, never retried; for a create, after the published site and the `static_site` entry are removed. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
+| Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed`; first, a create removes the published site and the `static_site` entry, an update keeps the site and marks the entry `failed` |
+| Permanent failure | reported `failed` on the first delivery, never retried, after the same cleanup as a transient failure. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
 
 The callback body is `{"status": "published", "data": {"publish_url": ...}}` or
 `{"status": "failed", "data": {"error_message": ...}}`, nothing else.

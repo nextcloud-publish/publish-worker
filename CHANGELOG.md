@@ -13,6 +13,9 @@ Update together with publish, which stores every site in its `static_site` table
 ### Added
 
 - `previous_slug` in `BuildJob`: the slug before an update renamed the site.
+- `update` builds and swaps like a create, then removes `PAGES_DIR/<previous_slug>/` when the slug
+  changed. An update that fails for good keeps the live site and sets `static_site.status` to
+  `failed`.
 - `DATABASE_URL`, required: publish's Postgres. The worker connects through Doctrine DBAL, without
   an ORM and without a schema of its own. The images ship `pdo_pgsql`.
 - A published build sets its site's `static_site.status` to `published`. A build that fails for
@@ -23,8 +26,7 @@ Update together with publish, which stores every site in its `static_site` table
 
 - **Breaking:** `BuildJob` requires `operation`: `create`, `update` or `delete`. A message without
   it is rejected, so this needs a publish that sends it. `title` and `content_download_url` are
-  only set for create and update. A failed update or delete leaves the published site and its
-  `static_site` entry in place.
+  only set for create and update.
 - **Breaking:** sites are published at `PAGES_DIR/<slug>/`, and `publish_url` is
   `<PUBLISH_BASE_URL>/<slug>/`, without the `static_site_id`. publish keeps slugs unique. Sites
   published before stay under `PAGES_DIR/<static_site_id>/` until removed by hand; publish them

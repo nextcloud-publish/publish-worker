@@ -16,6 +16,7 @@ use Symfony\Component\Messenger\Exception\UnrecoverableMessageHandlingException;
 /**
  * Builds a job received from publish API via symfony messenger:
  *  download, extract, render, publish, save, report.
+ * An update with a new slug also removes the site's directory under its previous slug, after the swap.
  *
  * A build that fails exits this method by throwing, not by returning an
  * error, and which exception type is thrown decides what Messenger does
@@ -64,6 +65,9 @@ final class BuildJobHandler
                 case BuildOperation::Create:
                     $this->create($buildJob, $startedAt);
                     break;
+                case BuildOperation::Update:
+                    $this->update($buildJob, $startedAt);
+                    break;
             }
         } catch (\InvalidArgumentException $e) {
             // Marked unrecoverable so the retry strategy is skipped entirely.
@@ -85,6 +89,48 @@ final class BuildJobHandler
         $pageCount = $this->build($buildJob);
         $this->jobWorkspace->publish($buildJob->build_id, $buildJob->slug);
         $this->jobWorkspace->clear($buildJob->build_id);
+
+        $publishUrl = $this->jobWorkspace->publishUrl($buildJob->slug);
+
+        // Before the callback, so the log records the publish even if the callback fails.
+        $this->logger->info('Published site', [
+            'pages' => $pageCount,
+            'duration_ms' => intdiv(hrtime(true) - $startedAt, 1_000_000),
+            'url' => $publishUrl,
+        ]);
+
+        // Before the callback too, so the database holds the result even if the callback fails;
+        // a database error is retried like any other environment error.
+        if (!$this->statusStore->markPublished($buildJob->static_site_id, $buildJob->build_id)) {
+            $this->logger->warning('static_site status not saved', ['reason' => 'no static_site entry for this build']);
+        }
+
+        $this->statusNotifier->notifyPublished(
+            callbackStatusUrl: $buildJob->callback_status_url,
+            publishUrl: $publishUrl,
+        );
+    }
+
+    /**
+     * Builds and publishes a new version of a site, saves its status and reports it to the callback.
+     * When the slug changed, the directory under the previous slug is removed after the swap.
+     *
+     * @param BuildJob $buildJob The update to run.
+     * @param int $startedAt hrtime() when the worker took the job, for the logged duration.
+     * @return void
+     * @throws \InvalidArgumentException if the content, the render options or the callback answer is invalid
+     * @throws \RuntimeException if a step fails in a way the next attempt may not
+     */
+    private function update(BuildJob $buildJob, int $startedAt): void
+    {
+        $pageCount = $this->build($buildJob);
+        $this->jobWorkspace->publish($buildJob->build_id, $buildJob->slug);
+        $this->jobWorkspace->clear($buildJob->build_id);
+
+        if ($buildJob->previous_slug !== null && $buildJob->previous_slug !== $buildJob->slug) {
+            // unpublish() logs a failure and returns false: a leftover old directory does not fail the update.
+            $this->jobWorkspace->unpublish($buildJob->previous_slug);
+        }
 
         $publishUrl = $this->jobWorkspace->publishUrl($buildJob->slug);
 

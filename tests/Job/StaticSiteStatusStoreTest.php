@@ -62,6 +62,13 @@ final class StaticSiteStatusStoreTest extends KernelTestCase
         self::assertFalse($this->storedStatus(), 'no entry left');
     }
 
+    /** A failed update keeps its published site, so the entry stays and says so. */
+    public function testMarksTheSiteFailed(): void
+    {
+        self::assertTrue($this->store()->markFailed(self::SITE_ID, self::BUILD_ID));
+        self::assertSame('failed', $this->storedStatus());
+    }
+
     /** A retried build publishes again and sets the same status again. */
     public function testMarkingTwiceIsHarmless(): void
     {
@@ -74,6 +81,7 @@ final class StaticSiteStatusStoreTest extends KernelTestCase
     public function testAnotherBuildLeavesTheStatusAlone(): void
     {
         self::assertFalse($this->store()->markPublished(self::SITE_ID, self::OTHER_BUILD_ID));
+        self::assertFalse($this->store()->markFailed(self::SITE_ID, self::OTHER_BUILD_ID));
         self::assertFalse($this->store()->deleteSite(self::SITE_ID, self::OTHER_BUILD_ID));
         self::assertSame('pending', $this->storedStatus());
     }
@@ -82,6 +90,7 @@ final class StaticSiteStatusStoreTest extends KernelTestCase
     public function testAnUnknownSiteChangesNothing(): void
     {
         self::assertFalse($this->store()->markPublished('4b6c1e2a-9d3f-4a7b-8c5e-2f1d0a9b8c7d', self::BUILD_ID));
+        self::assertFalse($this->store()->markFailed('4b6c1e2a-9d3f-4a7b-8c5e-2f1d0a9b8c7d', self::BUILD_ID));
         self::assertFalse($this->store()->deleteSite('4b6c1e2a-9d3f-4a7b-8c5e-2f1d0a9b8c7d', self::BUILD_ID));
         self::assertSame('pending', $this->storedStatus());
     }

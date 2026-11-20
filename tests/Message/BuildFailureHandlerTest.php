@@ -254,17 +254,45 @@ final class BuildFailureHandlerTest extends TestCase
         self::assertDirectoryDoesNotExist($publishSiteDir);
     }
 
-    /** The site an update would have replaced is still the live one, so it stays published with its entry. */
-    public function testAFailedUpdateKeepsThePublishedSiteAndItsEntry(): void
+    /**
+     * The event for an update that failed for good.
+     *
+     * @return WorkerMessageFailedEvent the event to hand the subscriber
+     */
+    private function failedUpdate(): WorkerMessageFailedEvent
+    {
+        return $this->failedEvent(new \RuntimeException('Extracting failed'), message: $this->job(operation: BuildOperation::Update));
+    }
+
+    /** The site an update would have replaced is still the live one, so it stays published and its entry is marked failed. */
+    public function testAFailedUpdateKeepsThePublishedSiteAndMarksItsEntryFailed(): void
     {
         $publishSiteDir = $this->givenAPublishedSite();
 
-        $this->buildFailureHandler()->onMessageFailed(
-            $this->failedEvent(new \RuntimeException('Extracting failed'), message: $this->job(operation: BuildOperation::Update)),
-        );
+        $this->buildFailureHandler()->onMessageFailed($this->failedUpdate());
 
         self::assertDirectoryExists($publishSiteDir);
-        self::assertSame([], $this->statements);
+        self::assertSame([['UPDATE', self::SITE_ID, self::BUILD_ID]], $this->statements);
+        self::assertSame('failed', $this->callbacks[0]['status'] ?? null);
+    }
+
+    public function testAFailedUpdateOfASiteWithoutThisBuildIsLoggedAndStillReported(): void
+    {
+        $this->statementResult = static fn (): int => 0;
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedUpdate());
+
+        self::assertTrue($this->logged->hasWarningThatContains('static_site status not saved'));
+        self::assertCount(1, $this->callbacks);
+    }
+
+    public function testADatabaseFailureOnAFailedUpdateIsLoggedAndTheFailureStillReported(): void
+    {
+        $this->statementResult = static fn (): int => throw new \RuntimeException('connection refused');
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedUpdate());
+
+        self::assertTrue($this->logged->hasErrorThatContains('Could not mark the static_site entry failed'));
         self::assertCount(1, $this->callbacks);
     }
 
