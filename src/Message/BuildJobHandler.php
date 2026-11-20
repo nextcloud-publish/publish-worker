@@ -61,17 +61,10 @@ final class BuildJobHandler
         // Every operation runs inside the same try block, so a failure in any step is retried or
         // handled as a failure by Messenger.
         try {
-            switch ($buildJob->operation) {
-                case BuildOperation::Create:
-                    $this->create($buildJob, $startedAt);
-                    break;
-                case BuildOperation::Update:
-                    $this->update($buildJob, $startedAt);
-                    break;
-                case BuildOperation::Delete:
-                    $this->delete($buildJob);
-                    break;
-            }
+            match ($buildJob->operation) {
+                BuildOperation::Create, BuildOperation::Update => $this->publishBuild($buildJob, $startedAt),
+                BuildOperation::Delete => $this->delete($buildJob),
+            };
         } catch (\InvalidArgumentException $e) {
             // Marked unrecoverable so the retry strategy is skipped entirely.
             throw new UnrecoverableMessageHandlingException($e->getMessage(), 0, $e);
@@ -79,53 +72,15 @@ final class BuildJobHandler
     }
 
     /**
-     * Builds and publishes a new site, saves its status and reports it to the callback.
+     * Builds and publishes a create or an update, saves its status and reports it to the callback.
      *
-     * @param BuildJob $buildJob The create to run.
+     * @param BuildJob $buildJob The create or update to run.
      * @param int $startedAt hrtime() when the worker took the job, for the logged duration.
      * @return void
      * @throws \InvalidArgumentException if $buildJob has no build_id, or the content, the render options or the callback answer is invalid
      * @throws \RuntimeException if a step fails in a way the next attempt may not
      */
-    private function create(BuildJob $buildJob, int $startedAt): void
-    {
-        $buildId = $buildJob->build_id ?? throw new \InvalidArgumentException(sprintf('A %s job needs build_id.', $buildJob->operation->value));
-
-        $pageCount = $this->build($buildJob, $buildId);
-        $this->jobWorkspace->publish($buildId, $buildJob->slug);
-        $this->jobWorkspace->clear($buildId);
-
-        $publishUrl = $this->jobWorkspace->publishUrl($buildJob->slug);
-
-        // Before the callback, so the log records the publish even if the callback fails.
-        $this->logger->info('Published site', [
-            'pages' => $pageCount,
-            'duration_ms' => intdiv(hrtime(true) - $startedAt, 1_000_000),
-            'url' => $publishUrl,
-        ]);
-
-        // Before the callback too, so the database holds the result even if the callback fails;
-        // a database error is retried like any other environment error.
-        if (!$this->statusStore->markPublished($buildJob->static_site_id, $buildId)) {
-            $this->logger->warning('static_site status not saved', ['reason' => 'no static_site entry for this build']);
-        }
-
-        $this->statusNotifier->notifyPublished(
-            callbackStatusUrl: $buildJob->callback_status_url,
-            publishUrl: $publishUrl,
-        );
-    }
-
-    /**
-     * Builds and publishes a new version of a site, saves its status and reports it to the callback.
-     *
-     * @param BuildJob $buildJob The update to run.
-     * @param int $startedAt hrtime() when the worker took the job, for the logged duration.
-     * @return void
-     * @throws \InvalidArgumentException if $buildJob has no build_id, or the content, the render options or the callback answer is invalid
-     * @throws \RuntimeException if a step fails in a way the next attempt may not
-     */
-    private function update(BuildJob $buildJob, int $startedAt): void
+    private function publishBuild(BuildJob $buildJob, int $startedAt): void
     {
         $buildId = $buildJob->build_id ?? throw new \InvalidArgumentException(sprintf('A %s job needs build_id.', $buildJob->operation->value));
 

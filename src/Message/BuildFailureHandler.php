@@ -89,15 +89,10 @@ final class BuildFailureHandler implements EventSubscriberInterface
             $this->jobWorkspace->clear($buildJob->build_id);
         }
 
-        switch ($buildJob->operation) {
-            case BuildOperation::Create:
-                $this->removeFailedCreate($buildJob);
-                break;
-            case BuildOperation::Update:
-            case BuildOperation::Delete:
-                $this->markFailed($buildJob);
-                break;
-        }
+        match ($buildJob->operation) {
+            BuildOperation::Create => $this->removeFailedCreate($buildJob),
+            BuildOperation::Update, BuildOperation::Delete => $this->markFailed($buildJob),
+        };
 
         try {
             $this->statusNotifier->notifyFailed(
