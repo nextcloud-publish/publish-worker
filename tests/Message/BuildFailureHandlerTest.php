@@ -276,6 +276,17 @@ final class BuildFailureHandlerTest extends TestCase
         self::assertSame('failed', $this->callbacks[0]['status'] ?? null);
     }
 
+    /** Whatever the delete did not remove is still served, so the entry stays and is marked failed. */
+    public function testAFailedDeleteMarksItsEntryFailed(): void
+    {
+        $this->buildFailureHandler()->onMessageFailed(
+            $this->failedEvent(new \RuntimeException('Could not remove the published site'), message: $this->job(operation: BuildOperation::Delete)),
+        );
+
+        self::assertSame([['UPDATE', self::SITE_ID, self::BUILD_ID]], $this->statements);
+        self::assertSame('failed', $this->callbacks[0]['status'] ?? null);
+    }
+
     public function testAFailedUpdateOfASiteWithoutThisBuildIsLoggedAndStillReported(): void
     {
         $this->statementResult = static fn (): int => 0;

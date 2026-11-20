@@ -17,6 +17,7 @@ use Symfony\Component\Messenger\Exception\UnrecoverableMessageHandlingException;
  * Builds a job received from publish API via symfony messenger:
  *  download, extract, render, publish, save, report.
  * An update with a new slug also removes the site's directory under its previous slug, after the swap.
+ * A delete builds nothing: it removes the published site, then the static_site entry, then reports `deleted`.
  *
  * A build that fails exits this method by throwing, not by returning an
  * error, and which exception type is thrown decides what Messenger does
@@ -67,6 +68,9 @@ final class BuildJobHandler
                     break;
                 case BuildOperation::Update:
                     $this->update($buildJob, $startedAt);
+                    break;
+                case BuildOperation::Delete:
+                    $this->delete($buildJob);
                     break;
             }
         } catch (\InvalidArgumentException $e) {
@@ -151,6 +155,31 @@ final class BuildJobHandler
             callbackStatusUrl: $buildJob->callback_status_url,
             publishUrl: $publishUrl,
         );
+    }
+
+    /**
+     * Removes a published site, then its static_site entry, and reports the site deleted to the callback.
+     * The entry stays while the files are still served: a failed removal is retried.
+     *
+     * @param BuildJob $buildJob The delete to run.
+     * @return void
+     * @throws \InvalidArgumentException if the callback rejects the report
+     * @throws \RuntimeException if the published site cannot be removed, or the database or the callback fails in a way the next attempt may not
+     */
+    private function delete(BuildJob $buildJob): void
+    {
+        if (!$this->jobWorkspace->unpublish($buildJob->slug)) {
+            throw new \RuntimeException(sprintf('Could not remove the published site of %s', $buildJob->slug));
+        }
+
+        // A database error is retried like any other environment error.
+        if (!$this->statusStore->deleteSite($buildJob->static_site_id, $buildJob->build_id)) {
+            $this->logger->warning('static_site entry not deleted', ['reason' => 'no static_site entry for this build']);
+        }
+
+        $this->logger->info('Deleted site', ['url' => $this->jobWorkspace->publishUrl($buildJob->slug)]);
+
+        $this->statusNotifier->notifyDeleted($buildJob->callback_status_url);
     }
 
     /**

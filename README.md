@@ -80,8 +80,9 @@ directory, so reusing one would republish pages that were deleted from the colle
 | Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed`; first, a create removes the published site and the `static_site` entry, an update keeps the site and marks the entry `failed` |
 | Permanent failure | reported `failed` on the first delivery, never retried, after the same cleanup as a transient failure. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
 
-The callback body is `{"status": "published", "data": {"publish_url": ...}}` or
-`{"status": "failed", "data": {"error_message": ...}}`, nothing else.
+The callback body is `{"status": "published", "data": {"publish_url": ...}}`,
+`{"status": "deleted", "data": {}}` or `{"status": "failed", "data": {"error_message": ...}}`,
+nothing else.
 
 Callback delivery is at-least-once. Receivers must dedupe on `(callback_status_url, status)` and
 treat a terminal status as final. The payload is specified in

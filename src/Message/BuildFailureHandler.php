@@ -14,7 +14,7 @@ use Symfony\Component\Messenger\Event\WorkerMessageFailedEvent;
 /**
  * Handles the failure of a build by clearing the job workspace, removing whatever a failed create left behind (its published site and
  * its static_site entry) and then notifying the status callback, so the client can POST the site again without a conflict.
- * A failed update keeps the published site and marks the entry `failed`.
+ * A failed update or delete keeps whatever is published and marks the entry `failed`.
  * Via the getSubscribedEvents method it subscribes to the WorkerMessageFailedEvent to handle build failures with the onMessageFailed method.
  * Setting a low priority ensures that the message is handled after the SendFailedMessageForRetryListener has had a chance to set the retry flag.
  * Before sending the notification the error message is redacted to strip out any sensitive information.
@@ -92,7 +92,8 @@ final class BuildFailureHandler implements EventSubscriberInterface
                 $this->removeFailedCreate($buildJob);
                 break;
             case BuildOperation::Update:
-                $this->markFailedUpdate($buildJob);
+            case BuildOperation::Delete:
+                $this->markFailed($buildJob);
                 break;
         }
 
@@ -129,12 +130,12 @@ final class BuildFailureHandler implements EventSubscriberInterface
     }
 
     /**
-     * Marks the entry of a failed update `failed`; the site published before the update stays.
+     * Marks the entry of a failed update or delete `failed`; whatever is published stays.
      *
-     * @param BuildJob $buildJob The update that failed.
+     * @param BuildJob $buildJob The update or delete that failed.
      * @return void
      */
-    private function markFailedUpdate(BuildJob $buildJob): void
+    private function markFailed(BuildJob $buildJob): void
     {
         try {
             if (!$this->statusStore->markFailed($buildJob->static_site_id, $buildJob->build_id)) {

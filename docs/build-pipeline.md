@@ -97,7 +97,11 @@ a conflict. `BuildFailureHandler` removes `PAGES_DIR/<slug>/`, then the entry:
 DELETE FROM static_site WHERE id = :static_site_id AND build_id = :build_id
 ```
 
-An update that fails for good keeps the site published before it and marks the entry:
+A delete builds nothing. It removes `PAGES_DIR/<slug>/`, then the entry with the same `DELETE`,
+then PATCHes `deleted`. When the directory cannot be removed it throws a `\RuntimeException`, so
+the entry stays while the files are served.
+
+An update or delete that fails for good keeps whatever is published and marks the entry:
 
 ```sql
 UPDATE static_site SET status = 'failed' WHERE id = :static_site_id AND build_id = :build_id
@@ -122,10 +126,11 @@ UPDATE static_site SET status = 'failed' WHERE id = :static_site_id AND build_id
 
 ## Callback
 
-A `PATCH` to `callback_status_url` with one of two bodies:
+A `PATCH` to `callback_status_url` with one of three bodies:
 
 ```json
 { "status": "published", "data": { "publish_url": "https://sites.example.org/<slug>/" } }
+{ "status": "deleted",   "data": {} }
 { "status": "failed",    "data": { "error_message": "Could not download ..." } }
 ```
 
