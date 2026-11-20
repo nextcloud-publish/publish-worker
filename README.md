@@ -8,7 +8,7 @@ Rendering is done by [ssg-library](https://github.com/nextcloud-publish/ssg-libr
 site generator. There is no HTTP server, no database and no templating in this repo.
 
 For each job the worker downloads the content archive, extracts it, renders the pages,
-publishes the result to `PAGES_DIR/<static_site_id>/<slug>/` and PATCHes the outcome to the job's
+publishes the result to `PAGES_DIR/<slug>/` and PATCHes the outcome to the job's
 `callback_status_url`. Progress and failures are logged, see [Logging](#logging).
 
 [docs/build-pipeline.md](docs/build-pipeline.md) describes the directories, publishing,
@@ -48,17 +48,20 @@ serializer and never reaches the handler. The fields the handler reads:
 | Field                  | Used for                                                                  |
 | ---------------------- | ------------------------------------------------------------------------- |
 | `build_id`             | UUID v7; names the job's folder under `BUILDS_DIR`                    |
-| `static_site_id`       | names the site's folder under `PAGES_DIR`                              |
-| `slug`                 | names the published site under `PAGES_DIR/<static_site_id>`            |
-| `title`                | the heading on every rendered page                                         |
-| `content_download_url` | the archive to fetch                                                       |
+| `static_site_id`       | identifies the site in publish's `static_site` table                   |
+| `operation`            | `create`, `update` or `delete`; a message without it is rejected       |
+| `slug`                 | unique across sites; names the published site under `PAGES_DIR`        |
+| `previous_slug`        | update only: the slug before the update renamed the site                 |
+| `title`                | create and update: the heading on every rendered page                      |
+| `content_download_url` | create and update: the archive to fetch                                    |
 | `callback_status_url`  | where the outcome is PATCHed; private network addresses are refused, except in dev |
 | `render_options`       | optional, any JSON value; passed to `SiteBuilder::build()` unchecked       |
 
 `created_at` is decoded but never read.
 
-publish checks every field before it enqueues a job: `static_site_id` and `slug` match
-`[A-Za-z0-9_-]{1,128}`, both URLs are `http` or `https` with a host. The worker uses the
+publish checks every field before it enqueues a job: `static_site_id` is a lower-case UUID,
+`slug` matches `[A-Za-z0-9_-]{1,128}` and is unique across sites, and both URLs are `http` or
+`https` with a host. The worker uses the
 fields without checking them again, and `static_site_id`, `build_id` and `slug` become
 directory names. `slug` and `title` are separate fields because the slug excludes spaces.
 
@@ -73,12 +76,13 @@ directory, so reusing one would republish pages that were deleted from the colle
 
 | Outcome           | What happens                                                                                                                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Success           | `PAGES_DIR/<static_site_id>/` is replaced by one holding only `<slug>/`, the build tree is cleared, and `published` is PATCHed with the `publish_url`                         |
-| Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed` |
-| Permanent failure | reported `failed` on the first delivery, never retried. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
+| Success           | `PAGES_DIR/<slug>/` is replaced, the build tree is cleared, and `published` is PATCHed with the `publish_url`, after `static_site.status` is set to `published` |
+| Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed`; first, a create removes the published site and the `static_site` entry, an update keeps the site and marks the entry `failed` |
+| Permanent failure | reported `failed` on the first delivery, never retried, after the same cleanup as a transient failure. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
 
-The callback body is `{"status": "published", "data": {"publish_url": ...}}` or
-`{"status": "failed", "data": {"error_message": ...}}`, nothing else.
+The callback body is `{"status": "published", "data": {"publish_url": ...}}`,
+`{"status": "deleted", "data": {}}` or `{"status": "failed", "data": {"error_message": ...}}`,
+nothing else.
 
 Callback delivery is at-least-once. Receivers must dedupe on `(callback_status_url, status)` and
 treat a terminal status as final. The payload is specified in
@@ -94,6 +98,8 @@ treat a terminal status as final. The payload is specified in
 - [Docker](https://www.docker.com/) with Compose v2 for the containerized dev stack.
 - A running `publish` RabbitMQ broker (see [Docker](#docker)). This repo does not run
   its own, and the broker must declare the `delays` exchange.
+- publish's Postgres, migrated by publish. The worker owns no schema: for the build publish
+  enqueued last it sets `static_site.status` to `published`, or deletes the entry if the build fails.
 
 ## Environment variables
 
@@ -101,9 +107,10 @@ treat a terminal status as final. The payload is specified in
 | ------------------------------- | -------- | ---------------------- | ------------------------------------------------------------------------------------------------ |
 | `AMQP_DSN`                      | yes      | none                   | RabbitMQ connection string, e.g. `amqp://publish:secret@rabbitmq:5672/%2f`                       |
 | `AMQP_HEARTBEAT`                | no       | `10`                   | AMQP heartbeat in seconds; must match the broker's setting                                       |
+| `DATABASE_URL`                  | yes      | none                   | publish's Postgres, e.g. `postgresql://publish:secret@postgres:5432/publish?serverVersion=18`    |
 | `BUILDS_DIR`                    | no       | `var/builds`           | Build scratch root. The worker creates `<build_id>/input` and `/output` under it                 |
-| `PAGES_DIR`                     | no       | `var/pages`            | Where finished sites are published, as `<static_site_id>/<slug>/`. An external nginx serves this |
-| `PUBLISH_BASE_URL`              | yes      | none                   | The public URL `PAGES_DIR` is served at. `publish_url` is `<base>/<static_site_id>/<slug>/`      |
+| `PAGES_DIR`                     | no       | `var/pages`            | Where finished sites are published, as `<slug>/`. An external nginx serves this                  |
+| `PUBLISH_BASE_URL`              | yes      | none                   | The public URL `PAGES_DIR` is served at. `publish_url` is `<base>/<slug>/`                       |
 | `DOWNLOAD_TIMEOUT_SECONDS`      | no       | `30`                   | Idle timeout of the content download                                                             |
 | `DOWNLOAD_MAX_DURATION_SECONDS` | no       | `300`                  | Maximum total duration of the content download                                                   |
 | `DOWNLOAD_MAX_REDIRECTS`        | no       | `3`                    | Redirects followed for the content download                                                      |
@@ -136,7 +143,7 @@ for directories and `0644` for files. No unit test can verify this.
 | `extra` key                 | Value                                                        |
 | --------------------------- | ------------------------------------------------------------ |
 | `build_id`                  | the build; publish logs the same id when it enqueues it      |
-| `static_site_id`, `slug`    | from the build's message                                     |
+| `static_site_id`, `operation`, `slug` | from the build's message                           |
 | `attempt`                   | `1`, or `2` for the retry                                    |
 | `hostname`                  | the container id                                             |
 
@@ -261,6 +268,24 @@ before updating, follows the pull command.
 php bin/phpunit
 ```
 
+The tests in the `database` group need `pdo_pgsql` and a Postgres on the host, the same one
+publish's tests use (`.env.test`: user `publish`, password `secret`). They run in their own
+database, `publish_worker_test`; create it once:
+
+```bash
+php bin/console doctrine:database:create --env=test --if-not-exists
+```
+
+The pre-commit hook leaves that group out, and CI runs it against its own Postgres. Without a
+Postgres, run the rest:
+
+```bash
+php bin/phpunit --exclude-group database
+```
+
+`StaticSiteStatusStoreTest` recreates `static_site` from `tests/fixtures/static_site.sql`, a copy
+of publish's migration. Update the copy when publish changes the table.
+
 The tests use real collaborators rather than mocks, because the classes are `final` and PHP
 cannot mock them. `MockHttpClient` replaces the network and a temp directory replaces the
 volumes. Status codes, broken transfers, traversal attempts, staging and the swap,
@@ -303,6 +328,7 @@ docker/
   php/php.ini                   the time zone; prod and dev
 config/
   packages/messenger.yaml       builds transport and retry_strategy
+  packages/doctrine.yaml        DBAL only: the connection to publish's Postgres
   packages/property_info.yaml   constructor extractor, so BuildJob can be built
   services.yaml                 the two storage roots, SSRF-guarded http client
 src/
@@ -313,12 +339,16 @@ src/
     ArchiveExtractor.php        unpacks the archive into input/content_unarchived
     SiteRenderer.php            renders the extracted pages into output/
     StatusNotifier.php          PATCHes the outcome to callback_status_url
+    StaticSiteStatusStore.php   sets or deletes the static_site entry in publish's database, fenced on build_id
     Filesystem.php              filesystem helpers; every error carries the OS message
   Message/
     BuildJob.php                the message shape for q.builds, mirroring publish's message class
     BuildJobHandler.php         registered in services.yaml, runs the build and reports it published
     BuildFailureHandler.php     reports a build that ran out of attempts, deletes it, and keeps
                                 volume paths out of what the client is sent
+  Messenger/
+    FreshDatabaseConnection.php closes the database connection when a message arrives, so a
+                                build never runs on a connection that died while the worker idled
   Logging/
     BuildContextProcessor.php   adds the build being handled to every log line
     SentryMessageContext.php    gives every message its own Sentry breadcrumbs

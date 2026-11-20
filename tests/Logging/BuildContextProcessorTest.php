@@ -6,6 +6,7 @@ namespace App\Tests\Logging;
 
 use App\Logging\BuildContextProcessor;
 use App\Message\BuildJob;
+use App\Message\BuildOperation;
 use Monolog\Handler\TestHandler;
 use Monolog\Level;
 use Monolog\LogRecord;
@@ -25,6 +26,7 @@ final class BuildContextProcessorTest extends KernelTestCase
     private const BUILD_FIELDS = [
         'build_id' => '16ef078ad37fd894',
         'static_site_id' => '11f5b798-6f34-4951-ad8b-bfd623ded5c2',
+        'operation' => 'create',
         'slug' => 'demo-site',
     ];
 
@@ -38,6 +40,7 @@ final class BuildContextProcessorTest extends KernelTestCase
         return new BuildJob(
             build_id: self::BUILD_FIELDS['build_id'],
             static_site_id: self::BUILD_FIELDS['static_site_id'],
+            operation: BuildOperation::Create,
             slug: self::BUILD_FIELDS['slug'],
             content_download_url: 'https://cloud.example.org/export.tar.gz',
             callback_status_url: 'https://cloud.example.org/status',

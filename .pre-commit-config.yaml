@@ -67,7 +67,8 @@ repos:
 
       - id: phpunit
         name: PHPUnit
-        entry: vendor/bin/phpunit
+        # Without the Postgres tests: CI runs them against its postgres service.
+        entry: vendor/bin/phpunit --exclude-group database
         language: system
         files: ^(config/|src/|tests/|composer\.lock$|\.env)
         pass_filenames: false

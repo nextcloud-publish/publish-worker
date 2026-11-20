@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Tests\Message;
 
 use App\Tests\DecodesJson;
+use App\Tests\StubsStatusStore;
 use App\Job\Filesystem;
 use App\Job\JobWorkspace;
 use App\Job\StatusNotifier;
 use App\Message\BuildFailureHandler;
 use App\Message\BuildJob;
+use App\Message\BuildOperation;
 use Monolog\Handler\TestHandler;
 use Monolog\LogRecord;
 use Monolog\Logger;
@@ -31,6 +33,7 @@ use Symfony\Component\Messenger\EventListener\SendFailedMessageForRetryListener;
 final class BuildFailureHandlerTest extends TestCase
 {
     use DecodesJson;
+    use StubsStatusStore;
 
     private const SITE_ID = '11f5b798-6f34-4951-ad8b-bfd623ded5c2';
     private const BUILD_ID = '0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b';
@@ -105,6 +108,7 @@ final class BuildFailureHandlerTest extends TestCase
         return new BuildFailureHandler(
             $this->jobWorkspace(),
             new StatusNotifier($callbackClient ?? $this->callbackClient, $this->logger(), timeoutSeconds: 5, maxDurationSeconds: 10, maxRedirects: 0),
+            $this->statusStore(),
             $this->logger(),
             $this->buildsDir(),
             $this->root . '/pages',
@@ -116,13 +120,18 @@ final class BuildFailureHandlerTest extends TestCase
      *
      * @param string $staticSiteId The static site id to put on the job.
      * @param string $callbackStatusUrl The callback url to put on the job.
+     * @param BuildOperation $operation The operation to put on the job.
      * @return BuildJob the message under test
      */
-    private function job(string $staticSiteId = self::SITE_ID, string $callbackStatusUrl = self::CALLBACK_URL): BuildJob
-    {
+    private function job(
+        string $staticSiteId = self::SITE_ID,
+        string $callbackStatusUrl = self::CALLBACK_URL,
+        BuildOperation $operation = BuildOperation::Create,
+    ): BuildJob {
         return new BuildJob(
             build_id: self::BUILD_ID,
             static_site_id: $staticSiteId,
+            operation: $operation,
             slug: self::SLUG,
             content_download_url: 'https://cloud.example.org/export.tar.gz',
             callback_status_url: $callbackStatusUrl,
@@ -178,12 +187,15 @@ final class BuildFailureHandlerTest extends TestCase
     public function testSaysNothingWhenAnotherAttemptIsComing(): void
     {
         $buildJobDir = $this->givenAJobTree();
+        $publishSiteDir = $this->givenAPublishedSite();
 
         $this->buildFailureHandler()->onMessageFailed(
             $this->failedEvent(new \RuntimeException('Extracting failed'), willRetry: true),
         );
 
         self::assertSame([], $this->callbacks);
+        self::assertSame([], $this->statements, 'nor is the entry deleted');
+        self::assertDirectoryExists($publishSiteDir, 'nor is a published site removed');
 
         /** The retry's reset() wipes this; clearing it now would throw away a build still in flight. */
         self::assertDirectoryExists($buildJobDir);
@@ -197,6 +209,127 @@ final class BuildFailureHandlerTest extends TestCase
         );
 
         self::assertSame([], $this->callbacks);
+    }
+
+    // --- what the failed build leaves behind -------------------------------
+
+    /**
+     * Leaves the site published, as a build that failed only at its callback would.
+     *
+     * @return string the published site directory
+     */
+    private function givenAPublishedSite(): string
+    {
+        $publishSiteDir = $this->jobWorkspace()->publishSiteDir(self::SLUG);
+        mkdir($publishSiteDir, 0o755, true);
+        file_put_contents($publishSiteDir . '/index.html', 'live');
+
+        return $publishSiteDir;
+    }
+
+    /** The client's next POST of the site must find nothing in its way, so the entry goes before the callback. */
+    public function testDeletesTheEntryBeforeReportingTheFailure(): void
+    {
+        $callbacksBefore = null;
+        $this->statementResult = function () use (&$callbacksBefore): int {
+            $callbacksBefore = \count($this->callbacks);
+
+            return 1;
+        };
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedEvent(new \RuntimeException('Extracting failed')));
+
+        self::assertSame([['DELETE', self::SITE_ID, self::BUILD_ID]], $this->statements);
+        self::assertSame(0, $callbacksBefore, 'the entry is deleted before the callback');
+        self::assertCount(1, $this->callbacks);
+    }
+
+    /** A build can fail after publishing, when only its callback failed: its site must not stay served. */
+    public function testRemovesASiteTheBuildPublished(): void
+    {
+        $publishSiteDir = $this->givenAPublishedSite();
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedEvent(new \RuntimeException('callback rejected')));
+
+        self::assertDirectoryDoesNotExist($publishSiteDir);
+    }
+
+    /**
+     * The event for an update that failed for good.
+     *
+     * @return WorkerMessageFailedEvent the event to hand the subscriber
+     */
+    private function failedUpdate(): WorkerMessageFailedEvent
+    {
+        return $this->failedEvent(new \RuntimeException('Extracting failed'), message: $this->job(operation: BuildOperation::Update));
+    }
+
+    /** The site an update would have replaced is still the live one, so it stays published and its entry is marked failed. */
+    public function testAFailedUpdateKeepsThePublishedSiteAndMarksItsEntryFailed(): void
+    {
+        $publishSiteDir = $this->givenAPublishedSite();
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedUpdate());
+
+        self::assertDirectoryExists($publishSiteDir);
+        self::assertSame([['UPDATE', self::SITE_ID, self::BUILD_ID]], $this->statements);
+        self::assertSame('failed', $this->callbacks[0]['status'] ?? null);
+    }
+
+    /** Whatever the delete did not remove is still served, so the entry stays and is marked failed. */
+    public function testAFailedDeleteMarksItsEntryFailed(): void
+    {
+        $this->buildFailureHandler()->onMessageFailed(
+            $this->failedEvent(new \RuntimeException('Could not remove the published site'), message: $this->job(operation: BuildOperation::Delete)),
+        );
+
+        self::assertSame([['UPDATE', self::SITE_ID, self::BUILD_ID]], $this->statements);
+        self::assertSame('failed', $this->callbacks[0]['status'] ?? null);
+    }
+
+    public function testAFailedUpdateOfASiteWithoutThisBuildIsLoggedAndStillReported(): void
+    {
+        $this->statementResult = static fn (): int => 0;
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedUpdate());
+
+        self::assertTrue($this->logged->hasWarningThatContains('static_site status not saved'));
+        self::assertCount(1, $this->callbacks);
+    }
+
+    public function testADatabaseFailureOnAFailedUpdateIsLoggedAndTheFailureStillReported(): void
+    {
+        $this->statementResult = static fn (): int => throw new \RuntimeException('connection refused');
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedUpdate());
+
+        self::assertTrue($this->logged->hasErrorThatContains('Could not mark the static_site entry failed'));
+        self::assertCount(1, $this->callbacks);
+    }
+
+    /** A newer build or a deleted site is logged; the client still hears of the failure. */
+    public function testASiteWithoutThisBuildIsLoggedAndStillReported(): void
+    {
+        $this->statementResult = static fn (): int => 0;
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedEvent(new \RuntimeException('Extracting failed')));
+
+        self::assertTrue($this->logged->hasWarningThatContains('static_site entry not deleted'));
+        self::assertCount(1, $this->callbacks);
+    }
+
+    /** The database never stands in the way of the callback, and the published site is removed all the same. */
+    public function testADatabaseFailureIsLoggedAndTheFailureStillReported(): void
+    {
+        $publishSiteDir = $this->givenAPublishedSite();
+        $this->statementResult = static fn (): int => throw new \RuntimeException('connection refused');
+
+        $this->buildFailureHandler()->onMessageFailed($this->failedEvent(new \RuntimeException('Extracting failed')));
+
+        self::assertTrue($this->logged->hasErrorThatContains('Could not delete static_site entry in the database'));
+        self::assertDirectoryDoesNotExist($publishSiteDir);
+        self::assertCount(1, $this->callbacks);
+        self::assertSame('failed', $this->callbacks[0]['status'] ?? null);
     }
 
     // --- what the client is told ------------------------------------------
@@ -366,6 +499,7 @@ final class BuildFailureHandlerTest extends TestCase
         $handler = new BuildFailureHandler(
             $this->jobWorkspace(),
             new StatusNotifier($this->callbackClient, $this->logger(), timeoutSeconds: 5, maxDurationSeconds: 10, maxRedirects: 0),
+            $this->statusStore(),
             $this->logger(),
             '/srv',
             '/srv/pages',

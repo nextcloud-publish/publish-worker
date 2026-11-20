@@ -10,7 +10,8 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * PATCHes a build's final result to the callback_status_url from the build request.
- * The body is {"status": "published", "data": {"publish_url": ...}} or {"status": "failed", "data": {"error_message": ...}}.
+ * The body is {"status": "published", "data": {"publish_url": ...}}, {"status": "deleted", "data": {}}
+ * or {"status": "failed", "data": {"error_message": ...}}.
  * Throws \InvalidArgumentException when no retry could succeed and \RuntimeException when one might.
  *
  * @param HttpClientInterface $httpClient The http client to use to send the notification.
@@ -22,6 +23,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 final class StatusNotifier
 {
     public const STATUS_PUBLISHED = 'published';
+    public const STATUS_DELETED = 'deleted';
     public const STATUS_FAILED = 'failed';
 
     /** 408 asks us to try again and 429 to slow down; every other 4xx is permanent. */
@@ -48,6 +50,19 @@ final class StatusNotifier
     public function notifyPublished(string $callbackStatusUrl, string $publishUrl): void
     {
         $this->patch($callbackStatusUrl, self::STATUS_PUBLISHED, ['publish_url' => $publishUrl]);
+    }
+
+    /**
+     * Reports a deleted site.
+     *
+     * @param string $callbackStatusUrl The url to send the notification to.
+     * @return void
+     * @throws \InvalidArgumentException if no retry could succeed
+     * @throws \RuntimeException         if the call is worth retrying
+     */
+    public function notifyDeleted(string $callbackStatusUrl): void
+    {
+        $this->patch($callbackStatusUrl, self::STATUS_DELETED, []);
     }
 
     /**
@@ -79,7 +94,8 @@ final class StatusNotifier
     {
         $payload = [
             'status' => $status,
-            'data' => $data,
+            // An empty array would encode as [], not {}.
+            'data' => (object) $data,
         ];
 
         try {

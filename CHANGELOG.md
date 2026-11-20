@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Update together with publish, which stores every site in its `static_site` table and passes
+`DATABASE_URL` to the worker. The worker needs it: without it the first build fails.
+
+### Added
+
+- `previous_slug` in `BuildJob`: the slug before an update renamed the site.
+- `update` builds and swaps like a create, then removes `PAGES_DIR/<previous_slug>/` when the slug
+  changed. An update that fails for good keeps the live site and sets `static_site.status` to
+  `failed`.
+- `delete` removes `PAGES_DIR/<slug>/`, then the `static_site` entry, and PATCHes
+  `{"status": "deleted", "data": {}}`, a status Nextcloud has to accept. A delete that cannot remove
+  the files is retried; one that fails for good keeps the entry as `failed`.
+- `DATABASE_URL`, required: publish's Postgres. The worker connects through Doctrine DBAL, without
+  an ORM and without a schema of its own. The images ship `pdo_pgsql`.
+- A published build sets its site's `static_site.status` to `published`. A build that fails for
+  good removes its published site and deletes the entry, so the client can POST the site again.
+  Both happen before the callback, and only while the entry still names this build.
+
+### Changed
+
+- **Breaking:** `BuildJob` requires `operation`: `create`, `update` or `delete`. A message without
+  it is rejected, so this needs a publish that sends it. `title` and `content_download_url` are
+  only set for create and update.
+- **Breaking:** sites are published at `PAGES_DIR/<slug>/`, and `publish_url` is
+  `<PUBLISH_BASE_URL>/<slug>/`, without the `static_site_id`. publish keeps slugs unique. Sites
+  published before stay under `PAGES_DIR/<static_site_id>/` until removed by hand; publish them
+  again for the new URL.
+
 ## [0.6.0] - 2026-11-15
 
 The storage roots are `BUILDS_DIR` and `PAGES_DIR`, with the defaults `var/builds` and `var/pages`.

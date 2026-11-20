@@ -9,7 +9,7 @@ RUN apk add --no-cache \
         php85 php85-pecl-amqp php85-pcntl \
         php85-ctype php85-iconv php85-simplexml \
         php85-dom php85-mbstring php85-tokenizer php85-xml php85-xmlwriter \
-        php85-curl php85-phar php85-openssl php85-zip \
+        php85-curl php85-phar php85-openssl php85-zip php85-pdo_pgsql \
         tar tzdata
 
 ENV TZ=UTC

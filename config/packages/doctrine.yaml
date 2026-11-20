@@ -1,0 +1,17 @@
+# DBAL only, no ORM: the worker writes one column of publish's static_site table and
+# owns no schema. Tables, columns and migrations belong to publish.
+doctrine:
+    dbal:
+        url: '%env(resolve:DATABASE_URL)%'
+
+        # The server version is serverVersion in DATABASE_URL, so DBAL needs no connection
+        # to pick its platform when the container is built.
+
+        profiling_collect_backtrace: '%kernel.debug%'
+
+when@test:
+    doctrine:
+        dbal:
+            # publish_worker_test, apart from publish's publish_test: StaticSiteStatusStoreTest
+            # drops and recreates static_site, which must not touch publish's migrated schema.
+            dbname_suffix: '_worker_test%env(default::TEST_TOKEN)%'

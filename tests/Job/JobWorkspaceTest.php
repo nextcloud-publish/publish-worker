@@ -17,7 +17,6 @@ use Psr\Log\NullLogger;
  */
 final class JobWorkspaceTest extends TestCase
 {
-    private const SITE = '11f5b798-6f34-4951-ad8b-bfd623ded5c2';
     private const BUILD = '0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b';
     private const SLUG = 'demo-site';
 
@@ -223,20 +222,20 @@ final class JobWorkspaceTest extends TestCase
         $paths = new JobWorkspace(new Filesystem(new NullLogger()), new NullLogger(), '/srv/builds/', '/srv/pages/', 'https://sites.example.org/');
 
         self::assertSame('/srv/builds/' . self::BUILD, $paths->buildJobDir(self::BUILD));
-        self::assertSame('/srv/pages/11f5b798-6f34-4951-ad8b-bfd623ded5c2', $paths->publishSiteDir(self::SITE));
-        self::assertSame('https://sites.example.org/11f5b798-6f34-4951-ad8b-bfd623ded5c2/demo-site/', $paths->publishUrl(self::SITE, self::SLUG));
+        self::assertSame('/srv/pages/demo-site', $paths->publishSiteDir(self::SLUG));
+        self::assertSame('https://sites.example.org/demo-site/', $paths->publishUrl(self::SLUG));
     }
 
-    /** The published tree is keyed on the site id; the slug is a directory inside it. */
-    public function testThePublishedSiteIsKeyedOnTheStaticSiteId(): void
+    /** The published tree is keyed on the slug, which publish keeps unique across sites. */
+    public function testThePublishedSiteIsKeyedOnTheSlug(): void
     {
-        self::assertSame('/srv/pages/11f5b798-6f34-4951-ad8b-bfd623ded5c2', $this->paths()->publishSiteDir(self::SITE));
+        self::assertSame('/srv/pages/demo-site', $this->paths()->publishSiteDir(self::SLUG));
     }
 
     /** The URL mirrors the published tree, with a trailing slash because it names a directory. */
-    public function testThePublishUrlIsTheBaseThenSiteThenSlug(): void
+    public function testThePublishUrlIsTheBaseThenSlug(): void
     {
-        self::assertSame('https://sites.example.org/11f5b798-6f34-4951-ad8b-bfd623ded5c2/demo-site/', $this->paths()->publishUrl(self::SITE, self::SLUG));
+        self::assertSame('https://sites.example.org/demo-site/', $this->paths()->publishUrl(self::SLUG));
     }
 
     /**

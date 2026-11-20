@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Message;
 
 use App\Tests\DecodesJson;
+use App\Tests\StubsStatusStore;
 use App\Job\ArchiveExtractor;
 use App\Job\ContentDownloader;
 use App\Job\Filesystem;
@@ -12,6 +13,7 @@ use App\Job\JobWorkspace;
 use App\Job\SiteRenderer;
 use App\Job\StatusNotifier;
 use App\Message\BuildJob;
+use App\Message\BuildOperation;
 use App\Message\BuildJobHandler;
 use Monolog\Handler\TestHandler;
 use Monolog\Level;
@@ -37,6 +39,7 @@ use Symfony\Component\Messenger\Exception\UnrecoverableMessageHandlingException;
 final class BuildJobHandlerTest extends TestCase
 {
     use DecodesJson;
+    use StubsStatusStore;
 
     private const SITE_ID = '11f5b798-6f34-4951-ad8b-bfd623ded5c2';
     private const BUILD_ID = '0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b';
@@ -153,6 +156,7 @@ final class BuildJobHandlerTest extends TestCase
             new SiteRenderer(),
             $workspace,
             new StatusNotifier($this->callbackClient, $this->logger(), timeoutSeconds: 5, maxDurationSeconds: 10, maxRedirects: 0),
+            $this->statusStore(),
             $this->logger(),
         );
     }
@@ -189,14 +193,14 @@ final class BuildJobHandlerTest extends TestCase
     }
 
     /**
-     * The live slug directory for this test's site under this test's roots.
+     * The live directory of a site under this test's roots.
      *
      * @param string $slug The slug to resolve.
-     * @return string the published slug path
+     * @return string the published site path
      */
     private function publishedSite(string $slug = self::SLUG): string
     {
-        return $this->publishedRoot() . '/' . self::SITE_ID . '/' . $slug;
+        return $this->publishedRoot() . '/' . $slug;
     }
 
     /**
@@ -204,31 +208,37 @@ final class BuildJobHandlerTest extends TestCase
      *
      * @param string $staticSiteId The static site id to put on the job.
      * @param string $slug The slug to put on the job.
-     * @param string $contentDownloadUrl The archive url to put on the job.
+     * @param ?string $contentDownloadUrl The archive url to put on the job.
      * @param string $buildId The build id to put on the job.
-     * @param string $title The site title to put on the job.
+     * @param ?string $title The site title to put on the job.
      * @param string $callbackStatusUrl The callback url to put on the job.
      * @param mixed $renderOptions The render options to put on the job.
+     * @param BuildOperation $operation The operation to put on the job.
+     * @param ?string $previousSlug The previous slug to put on the job.
      * @return BuildJob the message under test
      */
     private function job(
         string $staticSiteId = self::SITE_ID,
         string $slug = self::SLUG,
-        string $contentDownloadUrl = self::CONTENT_URL,
+        ?string $contentDownloadUrl = self::CONTENT_URL,
         string $buildId = self::BUILD_ID,
-        string $title = self::TITLE,
+        ?string $title = self::TITLE,
         string $callbackStatusUrl = self::CALLBACK_URL,
         mixed $renderOptions = null,
+        BuildOperation $operation = BuildOperation::Create,
+        ?string $previousSlug = null,
     ): BuildJob {
         return new BuildJob(
             build_id: $buildId,
             static_site_id: $staticSiteId,
+            operation: $operation,
             slug: $slug,
             content_download_url: $contentDownloadUrl,
             callback_status_url: $callbackStatusUrl,
             created_at: '2026-09-03T13:00:09+00:00',
             title: $title,
             render_options: $renderOptions,
+            previous_slug: $previousSlug,
         );
     }
 
@@ -306,8 +316,55 @@ final class BuildJobHandlerTest extends TestCase
         self::assertSame(self::CALLBACK_URL, $this->callbacks[0]['url']);
         self::assertSame([
             'status' => 'published',
-            'data' => ['publish_url' => 'http://sites.test/' . self::SITE_ID . '/' . self::SLUG . '/'],
+            'data' => ['publish_url' => 'http://sites.test/' . self::SLUG . '/'],
         ], $this->onlyCallback());
+    }
+
+    /** Saved before the callback, so the database holds the result even when the callback fails and the build is retried. */
+    public function testSavesThePublishedSiteBeforeReportingIt(): void
+    {
+        $callbacksBefore = null;
+        $this->statementResult = function () use (&$callbacksBefore): int {
+            $callbacksBefore = \count($this->callbacks);
+
+            return 1;
+        };
+
+        ($this->buildJobHandler())($this->job());
+
+        self::assertSame(
+            [['UPDATE', self::SITE_ID, self::BUILD_ID]],
+            $this->statements,
+        );
+        self::assertSame(0, $callbacksBefore, 'the status is saved before the callback');
+        self::assertCount(1, $this->callbacks);
+    }
+
+    /** A newer build or a deleted site is no reason to fail this one: it is logged, and the client still hears of it. */
+    public function testASiteWithoutThisBuildIsLoggedAndStillReported(): void
+    {
+        $this->statementResult = static fn (): int => 0;
+
+        ($this->buildJobHandler())($this->job());
+
+        self::assertTrue($this->logged->hasWarningThatContains('static_site status not saved'));
+        self::assertSame('published', $this->onlyCallback()['status']);
+    }
+
+    /** A database outage is an environment error like any other: the build is retried and nothing is reported. */
+    public function testADatabaseFailureIsRethrownForARetry(): void
+    {
+        $this->statementResult = static fn (): int => throw new \RuntimeException('connection refused');
+
+        try {
+            ($this->buildJobHandler())($this->job());
+            self::fail('Expected the database failure to be rethrown so Messenger can redeliver it.');
+        } catch (\RuntimeException $e) {
+            self::assertSame('connection refused', $e->getMessage());
+            self::assertNotInstanceOf(UnrecoverableMessageHandlingException::class, $e);
+        }
+
+        self::assertSame([], $this->callbacks);
     }
 
     /** The log is the only record a successful job leaves, so it has to name the folder, or it says neither which job nor which volume. */
@@ -352,7 +409,7 @@ final class BuildJobHandlerTest extends TestCase
         self::assertSame(Level::Info, $published[0]->level);
         self::assertSame(2, $published[0]->context['pages'], 'The sample archive holds two pages.');
         self::assertIsInt($published[0]->context['duration_ms']);
-        self::assertSame('http://sites.test/' . self::SITE_ID . '/' . self::SLUG . '/', $published[0]->context['url']);
+        self::assertSame('http://sites.test/' . self::SLUG . '/', $published[0]->context['url']);
     }
 
     /**
@@ -388,6 +445,7 @@ final class BuildJobHandlerTest extends TestCase
         }
 
         self::assertSame([], $this->callbacks, 'the handler never reports an outcome itself');
+        self::assertSame([], $this->statements, 'nor saves one');
     }
 
     /** The next attempt's reset() wipes the workdir, and clearing it here would throw away a build still in flight. */
@@ -435,6 +493,183 @@ final class BuildJobHandlerTest extends TestCase
             self::assertStringContainsString('render_options must be a JSON object', $e->getMessage());
             self::assertInstanceOf(\InvalidArgumentException::class, $e->getPrevious());
         }
+    }
+
+    /** publish sends both for a create; a job without one would fail the same way on every attempt. */
+    public function testACreateWithoutContentOrTitleIsTerminal(): void
+    {
+        foreach ([$this->job(contentDownloadUrl: null), $this->job(title: null)] as $job) {
+            try {
+                ($this->buildJobHandler())($job);
+                self::fail('Expected a create without content_download_url or title to be refused.');
+            } catch (UnrecoverableMessageHandlingException $e) {
+                self::assertStringContainsString('needs content_download_url and title', $e->getMessage());
+            }
+        }
+
+        self::assertSame([], $this->callbacks);
+    }
+
+    // --- update -----------------------------------------------------------
+
+    /**
+     * Leaves a published site under $slug, as an earlier build would.
+     *
+     * @param string $slug The slug to publish under.
+     * @return string the published directory
+     */
+    private function givenAPublishedSite(string $slug): string
+    {
+        mkdir($this->publishedSite($slug), 0o755, true);
+        file_put_contents($this->publishedSite($slug) . '/index.html', 'old version');
+
+        return $this->publishedSite($slug);
+    }
+
+    public function testAnUpdateReplacesThePublishedSiteAndReportsIt(): void
+    {
+        $this->givenAPublishedSite(self::SLUG);
+
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Update));
+
+        self::assertStringNotContainsString('old version', (string) file_get_contents($this->publishedSite() . '/index.html'));
+        self::assertSame([['UPDATE', self::SITE_ID, self::BUILD_ID]], $this->statements);
+        self::assertSame([
+            'status' => 'published',
+            'data' => ['publish_url' => 'http://sites.test/' . self::SLUG . '/'],
+        ], $this->onlyCallback());
+    }
+
+    public function testAnUpdateWithANewSlugRemovesTheSiteUnderThePreviousSlug(): void
+    {
+        $old = $this->givenAPublishedSite('old-slug');
+
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Update, previousSlug: 'old-slug'));
+
+        self::assertDirectoryDoesNotExist($old);
+        self::assertFileExists($this->publishedSite() . '/index.html');
+    }
+
+    public function testAnUpdateWhosePreviousSlugIsItsSlugKeepsTheSite(): void
+    {
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Update, previousSlug: self::SLUG));
+
+        self::assertFileExists($this->publishedSite() . '/index.html');
+    }
+
+    public function testAnUpdateLeavesOtherSitesAlone(): void
+    {
+        $other = $this->givenAPublishedSite('other-site');
+
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Update, previousSlug: 'old-slug'));
+
+        self::assertFileExists($other . '/index.html');
+    }
+
+    // --- delete -----------------------------------------------------------
+
+    public function testADeleteRemovesTheSiteAndItsEntryAndReportsIt(): void
+    {
+        $site = $this->givenAPublishedSite(self::SLUG);
+
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete, contentDownloadUrl: null, title: null));
+
+        self::assertDirectoryDoesNotExist($site);
+        self::assertSame([['DELETE', self::SITE_ID, self::BUILD_ID]], $this->statements);
+        self::assertSame(['status' => 'deleted', 'data' => []], $this->onlyCallback());
+    }
+
+    /** The entry stays while the files are served, and the client hears only once both are gone. */
+    public function testADeleteRemovesTheFilesThenTheEntryThenReports(): void
+    {
+        $site = $this->givenAPublishedSite(self::SLUG);
+        $seen = null;
+        $this->statementResult = function () use (&$seen, $site): int {
+            $seen = ['site exists' => is_dir($site), 'callbacks' => \count($this->callbacks)];
+
+            return 1;
+        };
+
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete));
+
+        self::assertSame(['site exists' => false, 'callbacks' => 0], $seen);
+        self::assertCount(1, $this->callbacks);
+    }
+
+    /** A retry of a delete whose first attempt removed the files but failed on the database carries on from there. */
+    public function testADeleteWhoseSiteIsAlreadyGoneStillDeletesTheEntry(): void
+    {
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete));
+
+        self::assertSame([['DELETE', self::SITE_ID, self::BUILD_ID]], $this->statements);
+        self::assertSame('deleted', $this->onlyCallback()['status'] ?? null);
+    }
+
+    /** A retry of a delete whose first attempt deleted the entry but failed on the callback still reports it. */
+    public function testADeleteWhoseEntryIsAlreadyGoneIsLoggedAndStillReported(): void
+    {
+        $this->statementResult = static fn (): int => 0;
+
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete));
+
+        self::assertTrue($this->logged->hasWarningThatContains('static_site entry not deleted'));
+        self::assertSame('deleted', $this->onlyCallback()['status'] ?? null);
+    }
+
+    public function testADeleteDownloadsNothingAndLeavesOtherSitesAlone(): void
+    {
+        $other = $this->givenAPublishedSite('other-site');
+        $downloads = 0;
+        $handler = $this->buildJobHandler(new MockHttpClient(function () use (&$downloads): MockResponse {
+            ++$downloads;
+
+            return new MockResponse($this->archiveBytes);
+        }));
+
+        $handler($this->job(operation: BuildOperation::Delete));
+
+        self::assertSame(0, $downloads);
+        self::assertFileExists($other . '/index.html');
+    }
+
+    public function testADatabaseFailureOnDeleteIsRethrownForARetry(): void
+    {
+        $this->statementResult = static fn (): int => throw new \RuntimeException('connection refused');
+
+        try {
+            ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete));
+            self::fail('Expected the database failure to be rethrown so Messenger can redeliver it.');
+        } catch (\RuntimeException $e) {
+            self::assertSame('connection refused', $e->getMessage());
+            self::assertNotInstanceOf(UnrecoverableMessageHandlingException::class, $e);
+        }
+
+        self::assertSame([], $this->callbacks);
+    }
+
+    /** The entry must not go while the files are still served, so the delete is retried instead. */
+    public function testASiteThatCannotBeRemovedFailsTheDeleteForARetry(): void
+    {
+        $site = $this->givenAPublishedSite(self::SLUG);
+        chmod($site, 0o555);
+
+        if (is_writable($site)) {
+            chmod($site, 0o755);
+            self::markTestSkipped('root removes the directory despite its permissions');
+        }
+
+        try {
+            ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete));
+            self::fail('Expected a site that cannot be removed to fail the delete.');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('Could not remove the published site of ' . self::SLUG, $e->getMessage());
+            self::assertNotInstanceOf(UnrecoverableMessageHandlingException::class, $e);
+        } finally {
+            chmod($site, 0o755);
+        }
+
+        self::assertSame([], $this->statements);
+        self::assertSame([], $this->callbacks);
     }
 
     // --- the callback is never allowed to fail the message ----------------
