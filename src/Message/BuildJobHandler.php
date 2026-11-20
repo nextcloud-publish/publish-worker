@@ -61,10 +61,10 @@ final class BuildJobHandler
         // a failed build in any step is retried or handled as a failure by Messenger.
         try {
             $pageCount = $this->build($buildJob);
-            $this->jobWorkspace->publish($buildJob->build_id, $buildJob->static_site_id, $buildJob->slug);
+            $this->jobWorkspace->publish($buildJob->build_id, $buildJob->slug);
             $this->jobWorkspace->clear($buildJob->build_id);
 
-            $publishUrl = $this->jobWorkspace->publishUrl($buildJob->static_site_id, $buildJob->slug);
+            $publishUrl = $this->jobWorkspace->publishUrl($buildJob->slug);
 
             // Before the callback, so the log records the publish even if the callback fails.
             $this->logger->info('Published site', [

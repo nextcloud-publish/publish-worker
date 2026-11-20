@@ -14,8 +14,8 @@ result queue.
 
 ```text
 BUILDS_DIR/<build_id>/{input,output}      build scratch, 0750
-PAGES_DIR/<static_site_id>/<slug>/       the live site, served at PUBLISH_BASE_URL
-PAGES_DIR/.staging/<build_id>/<slug>/    the build before it goes live
+PAGES_DIR/<slug>/                        the live site, served at PUBLISH_BASE_URL/<slug>/
+PAGES_DIR/.staging/<build_id>/           the build before it goes live
 ```
 
 [JobWorkspace](../src/Job/JobWorkspace.php) builds every path.
@@ -34,15 +34,16 @@ PAGES_DIR/.staging/<build_id>/<slug>/    the build before it goes live
 The handler calls `reset()` at the start of every attempt, `publish()` on success, and
 `clear()` once the job is finished either way. `publish()` runs three steps:
 
-1. Moves `output/` to `.staging/<build_id>/<slug>/`. This is the slow step, and it does not
+1. Moves `output/` to `.staging/<build_id>/`. This is the slow step, and it does not
    touch the live site.
 2. Sets the staged tree to `0755` for directories and `0644` for files, so nginx can read it.
    `output/` is `0750`, and files from the archive keep their tarball modes.
-3. Deletes `PAGES_DIR/<static_site_id>/` and renames the staged directory in its place.
+3. Deletes `PAGES_DIR/<slug>/` and renames the staged directory in its place.
    `rename()` onto a non-empty directory fails with `ENOTEMPTY`.
 
-Replacing the whole site directory means an old slug stops being served. `publish()` refuses
-an empty `output/`, so a build with no pages never replaces a live site.
+`publish()` refuses an empty `output/`, so a build with no pages never replaces a live site.
+The slug is the directory, and publish keeps it unique across sites. The worker does not know a
+site's previous slug, so a slug change on update leaves the old directory served.
 
 Known limitation: the site answers 404 between the delete and the rename. Nothing records how
 far an attempt got, so a retry rebuilds from the start.
@@ -88,7 +89,7 @@ UPDATE static_site SET status = 'published' WHERE id = :static_site_id AND build
 ```
 
 A build that fails for good leaves nothing behind, so the client can POST the site again without
-a conflict. `BuildFailureHandler` removes `PAGES_DIR/<static_site_id>/`, then the entry:
+a conflict. `BuildFailureHandler` removes `PAGES_DIR/<slug>/`, then the entry:
 
 ```sql
 DELETE FROM static_site WHERE id = :static_site_id AND build_id = :build_id
@@ -116,7 +117,7 @@ DELETE FROM static_site WHERE id = :static_site_id AND build_id = :build_id
 A `PATCH` to `callback_status_url` with one of two bodies:
 
 ```json
-{ "status": "published", "data": { "publish_url": "https://sites.example.org/<static_site_id>/<slug>/" } }
+{ "status": "published", "data": { "publish_url": "https://sites.example.org/<slug>/" } }
 { "status": "failed",    "data": { "error_message": "Could not download ..." } }
 ```
 

@@ -18,6 +18,13 @@ Update together with publish, which stores every site in its `static_site` table
   good removes its published site and deletes the entry, so the client can POST the site again.
   Both happen before the callback, and only while the entry still names this build.
 
+### Changed
+
+- **Breaking:** sites are published at `PAGES_DIR/<slug>/`, and `publish_url` is
+  `<PUBLISH_BASE_URL>/<slug>/`, without the `static_site_id`. publish keeps slugs unique. Sites
+  published before stay under `PAGES_DIR/<static_site_id>/` until removed by hand; publish them
+  again for the new URL.
+
 ## [0.6.0] - 2026-11-15
 
 The storage roots are `BUILDS_DIR` and `PAGES_DIR`, with the defaults `var/builds` and `var/pages`.

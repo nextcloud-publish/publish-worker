@@ -89,7 +89,7 @@ final class BuildFailureHandler implements EventSubscriberInterface
         // Everything the build left behind goes before the callback, so the client's next POST of the
         // site finds no entry in its way. The files go first: if the database then fails, nothing
         // unowned stays published. Neither step stands in the way of the callback.
-        $this->jobWorkspace->unpublish($buildJob->static_site_id);
+        $this->jobWorkspace->unpublish($buildJob->slug);
 
         try {
             if (!$this->statusStore->deleteSite($buildJob->static_site_id, $buildJob->build_id)) {

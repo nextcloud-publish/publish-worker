@@ -214,9 +214,9 @@ final class BuildFailureHandlerTest extends TestCase
      */
     private function givenAPublishedSite(): string
     {
-        $publishSiteDir = $this->jobWorkspace()->publishSiteDir(self::SITE_ID);
-        mkdir($publishSiteDir . '/' . self::SLUG, 0o755, true);
-        file_put_contents($publishSiteDir . '/' . self::SLUG . '/index.html', 'live');
+        $publishSiteDir = $this->jobWorkspace()->publishSiteDir(self::SLUG);
+        mkdir($publishSiteDir, 0o755, true);
+        file_put_contents($publishSiteDir . '/index.html', 'live');
 
         return $publishSiteDir;
     }

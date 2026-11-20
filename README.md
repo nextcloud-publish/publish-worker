@@ -8,7 +8,7 @@ Rendering is done by [ssg-library](https://github.com/nextcloud-publish/ssg-libr
 site generator. There is no HTTP server, no database and no templating in this repo.
 
 For each job the worker downloads the content archive, extracts it, renders the pages,
-publishes the result to `PAGES_DIR/<static_site_id>/<slug>/` and PATCHes the outcome to the job's
+publishes the result to `PAGES_DIR/<slug>/` and PATCHes the outcome to the job's
 `callback_status_url`. Progress and failures are logged, see [Logging](#logging).
 
 [docs/build-pipeline.md](docs/build-pipeline.md) describes the directories, publishing,
@@ -48,8 +48,8 @@ serializer and never reaches the handler. The fields the handler reads:
 | Field                  | Used for                                                                  |
 | ---------------------- | ------------------------------------------------------------------------- |
 | `build_id`             | UUID v7; names the job's folder under `BUILDS_DIR`                    |
-| `static_site_id`       | names the site's folder under `PAGES_DIR`                              |
-| `slug`                 | names the published site under `PAGES_DIR/<static_site_id>`            |
+| `static_site_id`       | identifies the site in publish's `static_site` table                   |
+| `slug`                 | unique across sites; names the published site under `PAGES_DIR`        |
 | `title`                | the heading on every rendered page                                         |
 | `content_download_url` | the archive to fetch                                                       |
 | `callback_status_url`  | where the outcome is PATCHed; private network addresses are refused, except in dev |
@@ -74,7 +74,7 @@ directory, so reusing one would republish pages that were deleted from the colle
 
 | Outcome           | What happens                                                                                                                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Success           | `PAGES_DIR/<static_site_id>/` is replaced by one holding only `<slug>/`, the build tree is cleared, and `published` is PATCHed with the `publish_url`, after `static_site.status` is set to `published` |
+| Success           | `PAGES_DIR/<slug>/` is replaced, the build tree is cleared, and `published` is PATCHed with the `publish_url`, after `static_site.status` is set to `published` |
 | Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed`, after removing the published site and deleting the `static_site` entry |
 | Permanent failure | reported `failed` on the first delivery, after the published site and the `static_site` entry are removed, never retried. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
 
@@ -106,8 +106,8 @@ treat a terminal status as final. The payload is specified in
 | `AMQP_HEARTBEAT`                | no       | `10`                   | AMQP heartbeat in seconds; must match the broker's setting                                       |
 | `DATABASE_URL`                  | yes      | none                   | publish's Postgres, e.g. `postgresql://publish:secret@postgres:5432/publish?serverVersion=18`    |
 | `BUILDS_DIR`                    | no       | `var/builds`           | Build scratch root. The worker creates `<build_id>/input` and `/output` under it                 |
-| `PAGES_DIR`                     | no       | `var/pages`            | Where finished sites are published, as `<static_site_id>/<slug>/`. An external nginx serves this |
-| `PUBLISH_BASE_URL`              | yes      | none                   | The public URL `PAGES_DIR` is served at. `publish_url` is `<base>/<static_site_id>/<slug>/`      |
+| `PAGES_DIR`                     | no       | `var/pages`            | Where finished sites are published, as `<slug>/`. An external nginx serves this                  |
+| `PUBLISH_BASE_URL`              | yes      | none                   | The public URL `PAGES_DIR` is served at. `publish_url` is `<base>/<slug>/`                       |
 | `DOWNLOAD_TIMEOUT_SECONDS`      | no       | `30`                   | Idle timeout of the content download                                                             |
 | `DOWNLOAD_MAX_DURATION_SECONDS` | no       | `300`                  | Maximum total duration of the content download                                                   |
 | `DOWNLOAD_MAX_REDIRECTS`        | no       | `3`                    | Redirects followed for the content download                                                      |

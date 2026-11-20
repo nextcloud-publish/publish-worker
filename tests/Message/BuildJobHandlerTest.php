@@ -192,14 +192,14 @@ final class BuildJobHandlerTest extends TestCase
     }
 
     /**
-     * The live slug directory for this test's site under this test's roots.
+     * The live directory of a site under this test's roots.
      *
      * @param string $slug The slug to resolve.
-     * @return string the published slug path
+     * @return string the published site path
      */
     private function publishedSite(string $slug = self::SLUG): string
     {
-        return $this->publishedRoot() . '/' . self::SITE_ID . '/' . $slug;
+        return $this->publishedRoot() . '/' . $slug;
     }
 
     /**
@@ -309,7 +309,7 @@ final class BuildJobHandlerTest extends TestCase
         self::assertSame(self::CALLBACK_URL, $this->callbacks[0]['url']);
         self::assertSame([
             'status' => 'published',
-            'data' => ['publish_url' => 'http://sites.test/' . self::SITE_ID . '/' . self::SLUG . '/'],
+            'data' => ['publish_url' => 'http://sites.test/' . self::SLUG . '/'],
         ], $this->onlyCallback());
     }
 
@@ -402,7 +402,7 @@ final class BuildJobHandlerTest extends TestCase
         self::assertSame(Level::Info, $published[0]->level);
         self::assertSame(2, $published[0]->context['pages'], 'The sample archive holds two pages.');
         self::assertIsInt($published[0]->context['duration_ms']);
-        self::assertSame('http://sites.test/' . self::SITE_ID . '/' . self::SLUG . '/', $published[0]->context['url']);
+        self::assertSame('http://sites.test/' . self::SLUG . '/', $published[0]->context['url']);
     }
 
     /**
