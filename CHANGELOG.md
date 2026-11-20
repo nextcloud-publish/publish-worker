@@ -15,7 +15,7 @@ Update together with publish, which stores every site in its `static_site` table
 - `update` builds and swaps like a create, under the site's slug. An update that fails for good
   keeps the live site and sets `static_site.status` to `failed`.
 - `delete` removes `PAGES_DIR/<slug>/`, then the `static_site` entry, and PATCHes
-  `{"status": "deleted", "data": {}}`, a status publish has to accept. A delete that cannot remove
+  `{"status": "deleted", "data": {}}`, a status Nextcloud has to accept. A delete that cannot remove
   the files is retried; one that fails for good keeps the entry as `failed`.
 - `DATABASE_URL`, required: publish's Postgres. The worker connects through Doctrine DBAL, without
   an ORM and without a schema of its own. The images ship `pdo_pgsql`.

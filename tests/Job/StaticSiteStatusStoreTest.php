@@ -36,6 +36,7 @@ final class StaticSiteStatusStoreTest extends KernelTestCase
             'slug' => 'some_collective',
             'status' => 'pending',
             'build_id' => self::BUILD_ID,
+            'updated_at' => '2026-11-21 12:00:00+00',
         ]);
     }
 
