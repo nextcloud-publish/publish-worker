@@ -55,10 +55,10 @@ final class StaticSiteStatusStoreTest extends KernelTestCase
         self::assertSame('published', $this->storedStatus());
     }
 
-    /** A failed build leaves no entry, so the client can POST the site again. */
-    public function testDeletesTheEntryOfAFailedBuild(): void
+    /** A delete and a failed create leave no entry, so the client can POST the site again. */
+    public function testDeletesTheEntryByTheSiteIdAlone(): void
     {
-        self::assertTrue($this->store()->deleteSite(self::SITE_ID, self::BUILD_ID));
+        self::assertTrue($this->store()->deleteSite(self::SITE_ID));
         self::assertFalse($this->storedStatus(), 'no entry left');
     }
 
@@ -66,6 +66,13 @@ final class StaticSiteStatusStoreTest extends KernelTestCase
     public function testMarksTheSiteFailed(): void
     {
         self::assertTrue($this->store()->markFailed(self::SITE_ID, self::BUILD_ID));
+        self::assertSame('failed', $this->storedStatus());
+    }
+
+    /** A delete has no build_id, so its failure goes by the site id alone. */
+    public function testMarksTheSiteFailedWithoutABuildId(): void
+    {
+        self::assertTrue($this->store()->markFailed(self::SITE_ID, null));
         self::assertSame('failed', $this->storedStatus());
     }
 
@@ -82,7 +89,6 @@ final class StaticSiteStatusStoreTest extends KernelTestCase
     {
         self::assertFalse($this->store()->markPublished(self::SITE_ID, self::OTHER_BUILD_ID));
         self::assertFalse($this->store()->markFailed(self::SITE_ID, self::OTHER_BUILD_ID));
-        self::assertFalse($this->store()->deleteSite(self::SITE_ID, self::OTHER_BUILD_ID));
         self::assertSame('pending', $this->storedStatus());
     }
 
@@ -91,7 +97,7 @@ final class StaticSiteStatusStoreTest extends KernelTestCase
     {
         self::assertFalse($this->store()->markPublished('4b6c1e2a-9d3f-4a7b-8c5e-2f1d0a9b8c7d', self::BUILD_ID));
         self::assertFalse($this->store()->markFailed('4b6c1e2a-9d3f-4a7b-8c5e-2f1d0a9b8c7d', self::BUILD_ID));
-        self::assertFalse($this->store()->deleteSite('4b6c1e2a-9d3f-4a7b-8c5e-2f1d0a9b8c7d', self::BUILD_ID));
+        self::assertFalse($this->store()->deleteSite('4b6c1e2a-9d3f-4a7b-8c5e-2f1d0a9b8c7d'));
         self::assertSame('pending', $this->storedStatus());
     }
 }

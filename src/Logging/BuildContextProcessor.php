@@ -13,7 +13,7 @@ use Symfony\Component\Messenger\Event\WorkerRunningEvent;
 use Symfony\Component\Messenger\Stamp\RedeliveryStamp;
 
 /**
- * Adds the build the worker is handling to every log record: build_id, static_site_id, operation, slug and attempt.
+ * Adds the job the worker is handling to every log record: build_id (not for a delete), static_site_id, operation, slug and attempt.
  * It covers every channel, so Messenger's and HttpClient's lines carry the build too.
  * Records logged outside a build get nothing.
  */
@@ -65,7 +65,9 @@ final class BuildContextProcessor
             return $record;
         }
 
-        $record->extra['build_id'] = $this->buildJob->build_id;
+        if ($this->buildJob->build_id !== null) {
+            $record->extra['build_id'] = $this->buildJob->build_id;
+        }
         $record->extra['static_site_id'] = $this->buildJob->static_site_id;
         $record->extra['operation'] = $this->buildJob->operation->value;
         $record->extra['slug'] = $this->buildJob->slug;

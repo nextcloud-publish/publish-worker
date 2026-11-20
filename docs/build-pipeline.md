@@ -92,10 +92,15 @@ A create that fails for good leaves nothing behind, so the client can POST the s
 a conflict. `BuildFailureHandler` removes `PAGES_DIR/<slug>/`, then the entry:
 
 ```sql
-DELETE FROM static_site WHERE id = :static_site_id AND build_id = :build_id
+DELETE FROM static_site WHERE id = :static_site_id
 ```
 
-An update that fails for good keeps the site published before it and marks the entry:
+A delete builds nothing and carries no `build_id`. It removes `PAGES_DIR/<slug>/`, then the entry
+with the same `DELETE`, then PATCHes `deleted`. When the directory cannot be removed it throws a
+`\RuntimeException`, so the entry stays while the files are served.
+
+An update or delete that fails for good keeps whatever is published and marks the entry `failed`,
+a delete by the site's id alone:
 
 ```sql
 UPDATE static_site SET status = 'failed' WHERE id = :static_site_id AND build_id = :build_id
@@ -108,9 +113,11 @@ UPDATE static_site SET status = 'failed' WHERE id = :static_site_id AND build_id
   the same status again.
 - A build can fail after publishing, when only its callback failed. Its published site is
   removed with the entry, so nothing unowned stays served.
-- The `build_id` condition is a fence: a build publish has since replaced changes nothing, and
-  neither does one whose site was deleted. Either is a `static_site status not saved` or
-  `static_site entry not deleted` warning, not a failure; the callback is sent as before.
+- The `build_id` condition on the status updates is a fence: a build publish has since replaced
+  changes nothing, and neither does one whose site was deleted. The `DELETE` goes by the site's id
+  alone, so an entry is never left behind because its `build_id` changed. A statement that matches
+  nothing is a `static_site status not saved` or `static_site entry not deleted` warning, not a
+  failure; the callback is sent as before.
 - A database error on success is an environment error: the build is retried. On failure it is
   logged as `Could not delete static_site entry in the database`, and the `failed` callback is
   sent anyway. The entry then stays, and the client's next POST of the site gets a `409` until
@@ -120,10 +127,11 @@ UPDATE static_site SET status = 'failed' WHERE id = :static_site_id AND build_id
 
 ## Callback
 
-A `PATCH` to `callback_status_url` with one of two bodies:
+A `PATCH` to `callback_status_url` with one of three bodies:
 
 ```json
 { "status": "published", "data": { "publish_url": "https://sites.example.org/<slug>/" } }
+{ "status": "deleted",   "data": {} }
 { "status": "failed",    "data": { "error_message": "Could not download ..." } }
 ```
 

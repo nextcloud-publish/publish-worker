@@ -47,7 +47,7 @@ serializer and never reaches the handler. The fields the handler reads:
 
 | Field                  | Used for                                                                  |
 | ---------------------- | ------------------------------------------------------------------------- |
-| `build_id`             | UUID v7; names the job's folder under `BUILDS_DIR`                    |
+| `build_id`             | UUID v7; names the job's folder under `BUILDS_DIR`; `null` for a delete |
 | `static_site_id`       | identifies the site in publish's `static_site` table                   |
 | `operation`            | `create`, `update` or `delete`; a message without it is rejected       |
 | `slug`                 | unique across sites; names the published site under `PAGES_DIR`        |
@@ -79,8 +79,9 @@ directory, so reusing one would republish pages that were deleted from the colle
 | Transient failure | rethrown, and the transport redelivers after 15s. `max_retries: 1` gives two build attempts; on the second failure `BuildFailureHandler` deletes the build tree and PATCHes `failed`; first, a create removes the published site and the `static_site` entry, an update keeps the site and marks the entry `failed` |
 | Permanent failure | reported `failed` on the first delivery, never retried, after the same cleanup as a transient failure. Caused by an archive with no Markdown page, invalid `render_options`, or a callback answered with a 3xx or a 4xx other than 408 and 429 |
 
-The callback body is `{"status": "published", "data": {"publish_url": ...}}` or
-`{"status": "failed", "data": {"error_message": ...}}`, nothing else.
+The callback body is `{"status": "published", "data": {"publish_url": ...}}`,
+`{"status": "deleted", "data": {}}` or `{"status": "failed", "data": {"error_message": ...}}`,
+nothing else.
 
 Callback delivery is at-least-once. Receivers must dedupe on `(callback_status_url, status)` and
 treat a terminal status as final. The payload is specified in
@@ -140,7 +141,7 @@ for directories and `0644` for files. No unit test can verify this.
 
 | `extra` key                 | Value                                                        |
 | --------------------------- | ------------------------------------------------------------ |
-| `build_id`                  | the build; publish logs the same id when it enqueues it      |
+| `build_id`                  | the build, not for a delete; publish logs the same id when it enqueues it |
 | `static_site_id`, `operation`, `slug` | from the build's message                           |
 | `attempt`                   | `1`, or `2` for the retry                                    |
 | `hostname`                  | the container id                                             |
@@ -337,7 +338,7 @@ src/
     ArchiveExtractor.php        unpacks the archive into input/content_unarchived
     SiteRenderer.php            renders the extracted pages into output/
     StatusNotifier.php          PATCHes the outcome to callback_status_url
-    StaticSiteStatusStore.php   sets or deletes the static_site entry in publish's database, fenced on build_id
+    StaticSiteStatusStore.php   sets or deletes the static_site entry in publish's database
     Filesystem.php              filesystem helpers; every error carries the OS message
   Message/
     BuildJob.php                the message shape for q.builds, mirroring publish's message class

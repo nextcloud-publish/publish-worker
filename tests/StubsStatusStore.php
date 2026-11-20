@@ -14,7 +14,7 @@ use Doctrine\DBAL\Connection;
  */
 trait StubsStatusStore
 {
-    /** @var list<array<mixed>> every statement the store ran: its SQL verb (UPDATE, DELETE), then static_site_id and build_id */
+    /** @var list<array<mixed>> every statement the store ran: its SQL verb (UPDATE, DELETE), then static_site_id and, when the statement is fenced, build_id */
     private array $statements = [];
 
     /** @var ?\Closure(): int the entries a statement matches, or throws as the database would; null for 1 */

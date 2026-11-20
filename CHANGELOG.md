@@ -14,17 +14,21 @@ Update together with publish, which stores every site in its `static_site` table
 
 - `update` builds and swaps like a create, under the site's slug. An update that fails for good
   keeps the live site and sets `static_site.status` to `failed`.
+- `delete` removes `PAGES_DIR/<slug>/`, then the `static_site` entry, and PATCHes
+  `{"status": "deleted", "data": {}}`, a status publish has to accept. A delete that cannot remove
+  the files is retried; one that fails for good keeps the entry as `failed`.
 - `DATABASE_URL`, required: publish's Postgres. The worker connects through Doctrine DBAL, without
   an ORM and without a schema of its own. The images ship `pdo_pgsql`.
 - A published build sets its site's `static_site.status` to `published`. A build that fails for
   good removes its published site and deletes the entry, so the client can POST the site again.
-  Both happen before the callback, and only while the entry still names this build.
+  Both happen before the callback. The status is only set while the entry still names this build;
+  the entry is deleted by the site's id alone.
 
 ### Changed
 
 - **Breaking:** `BuildJob` requires `operation`: `create`, `update` or `delete`. A message without
-  it is rejected, so this needs a publish that sends it. `title` and `content_download_url` are
-  only set for create and update.
+  it is rejected, so this needs a publish that sends it. `build_id`, `title` and
+  `content_download_url` are only set for create and update.
 - **Breaking:** sites are published at `PAGES_DIR/<slug>/`, and `publish_url` is
   `<PUBLISH_BASE_URL>/<slug>/`, without the `static_site_id`. publish keeps slugs unique. Sites
   published before stay under `PAGES_DIR/<static_site_id>/` until removed by hand; publish them

@@ -103,15 +103,16 @@ final class BuildJobContractTest extends KernelTestCase
         self::assertSame(BuildOperation::Update, $this->decode([...self::currentPayload(), 'operation' => 'update'])->operation);
     }
 
-    /** A delete builds nothing, so publish sends no content_download_url and no title. */
-    public function testDecodesADeleteWithoutContentOrTitle(): void
+    /** A delete builds nothing, so publish sends build_id null and no content_download_url and no title. */
+    public function testDecodesADeleteWithoutBuildIdContentOrTitle(): void
     {
-        $payload = [...self::currentPayload(), 'operation' => 'delete'];
+        $payload = [...self::currentPayload(), 'operation' => 'delete', 'build_id' => null];
         unset($payload['content_download_url'], $payload['title']);
 
         $build = $this->decode($payload);
 
         self::assertSame(BuildOperation::Delete, $build->operation);
+        self::assertNull($build->build_id);
         self::assertNull($build->content_download_url);
         self::assertNull($build->title);
     }

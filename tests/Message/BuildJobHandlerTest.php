@@ -209,7 +209,7 @@ final class BuildJobHandlerTest extends TestCase
      * @param string $staticSiteId The static site id to put on the job.
      * @param string $slug The slug to put on the job.
      * @param ?string $contentDownloadUrl The archive url to put on the job.
-     * @param string $buildId The build id to put on the job.
+     * @param ?string $buildId The build id to put on the job; a delete always gets null, as publish sends it.
      * @param ?string $title The site title to put on the job.
      * @param string $callbackStatusUrl The callback url to put on the job.
      * @param mixed $renderOptions The render options to put on the job.
@@ -220,14 +220,14 @@ final class BuildJobHandlerTest extends TestCase
         string $staticSiteId = self::SITE_ID,
         string $slug = self::SLUG,
         ?string $contentDownloadUrl = self::CONTENT_URL,
-        string $buildId = self::BUILD_ID,
+        ?string $buildId = self::BUILD_ID,
         ?string $title = self::TITLE,
         string $callbackStatusUrl = self::CALLBACK_URL,
         mixed $renderOptions = null,
         BuildOperation $operation = BuildOperation::Create,
     ): BuildJob {
         return new BuildJob(
-            build_id: $buildId,
+            build_id: $operation === BuildOperation::Delete ? null : $buildId,
             static_site_id: $staticSiteId,
             operation: $operation,
             slug: $slug,
@@ -507,6 +507,19 @@ final class BuildJobHandlerTest extends TestCase
         self::assertSame([], $this->callbacks);
     }
 
+    /** publish sends a build_id with every create and update; without one there is no folder to build in. */
+    public function testACreateWithoutBuildIdIsTerminal(): void
+    {
+        try {
+            ($this->buildJobHandler())($this->job(buildId: null));
+            self::fail('Expected a create without build_id to be refused.');
+        } catch (UnrecoverableMessageHandlingException $e) {
+            self::assertStringContainsString('needs build_id', $e->getMessage());
+        }
+
+        self::assertSame([], $this->callbacks);
+    }
+
     // --- update -----------------------------------------------------------
 
     /**
@@ -544,6 +557,112 @@ final class BuildJobHandlerTest extends TestCase
         ($this->buildJobHandler())($this->job(operation: BuildOperation::Update));
 
         self::assertFileExists($other . '/index.html');
+    }
+
+    // --- delete -----------------------------------------------------------
+
+    public function testADeleteRemovesTheSiteAndItsEntryAndReportsIt(): void
+    {
+        $site = $this->givenAPublishedSite(self::SLUG);
+
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete, contentDownloadUrl: null, title: null));
+
+        self::assertDirectoryDoesNotExist($site);
+        self::assertSame([['DELETE', self::SITE_ID]], $this->statements);
+        self::assertSame(['status' => 'deleted', 'data' => []], $this->onlyCallback());
+    }
+
+    /** The entry stays while the files are served, and the client hears only once both are gone. */
+    public function testADeleteRemovesTheFilesThenTheEntryThenReports(): void
+    {
+        $site = $this->givenAPublishedSite(self::SLUG);
+        $seen = null;
+        $this->statementResult = function () use (&$seen, $site): int {
+            $seen = ['site exists' => is_dir($site), 'callbacks' => \count($this->callbacks)];
+
+            return 1;
+        };
+
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete));
+
+        self::assertSame(['site exists' => false, 'callbacks' => 0], $seen);
+        self::assertCount(1, $this->callbacks);
+    }
+
+    /** A retry of a delete whose first attempt removed the files but failed on the database carries on from there. */
+    public function testADeleteWhoseSiteIsAlreadyGoneStillDeletesTheEntry(): void
+    {
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete));
+
+        self::assertSame([['DELETE', self::SITE_ID]], $this->statements);
+        self::assertSame('deleted', $this->onlyCallback()['status'] ?? null);
+    }
+
+    /** A retry of a delete whose first attempt deleted the entry but failed on the callback still reports it. */
+    public function testADeleteWhoseEntryIsAlreadyGoneIsLoggedAndStillReported(): void
+    {
+        $this->statementResult = static fn (): int => 0;
+
+        ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete));
+
+        self::assertTrue($this->logged->hasWarningThatContains('static_site entry not deleted'));
+        self::assertSame('deleted', $this->onlyCallback()['status'] ?? null);
+    }
+
+    public function testADeleteDownloadsNothingAndLeavesOtherSitesAlone(): void
+    {
+        $other = $this->givenAPublishedSite('other-site');
+        $downloads = 0;
+        $handler = $this->buildJobHandler(new MockHttpClient(function () use (&$downloads): MockResponse {
+            ++$downloads;
+
+            return new MockResponse($this->archiveBytes);
+        }));
+
+        $handler($this->job(operation: BuildOperation::Delete));
+
+        self::assertSame(0, $downloads);
+        self::assertFileExists($other . '/index.html');
+    }
+
+    public function testADatabaseFailureOnDeleteIsRethrownForARetry(): void
+    {
+        $this->statementResult = static fn (): int => throw new \RuntimeException('connection refused');
+
+        try {
+            ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete));
+            self::fail('Expected the database failure to be rethrown so Messenger can redeliver it.');
+        } catch (\RuntimeException $e) {
+            self::assertSame('connection refused', $e->getMessage());
+            self::assertNotInstanceOf(UnrecoverableMessageHandlingException::class, $e);
+        }
+
+        self::assertSame([], $this->callbacks);
+    }
+
+    /** The entry must not go while the files are still served, so the delete is retried instead. */
+    public function testASiteThatCannotBeRemovedFailsTheDeleteForARetry(): void
+    {
+        $site = $this->givenAPublishedSite(self::SLUG);
+        chmod($site, 0o555);
+
+        if (is_writable($site)) {
+            chmod($site, 0o755);
+            self::markTestSkipped('root removes the directory despite its permissions');
+        }
+
+        try {
+            ($this->buildJobHandler())($this->job(operation: BuildOperation::Delete));
+            self::fail('Expected a site that cannot be removed to fail the delete.');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('Could not remove the published site of ' . self::SLUG, $e->getMessage());
+            self::assertNotInstanceOf(UnrecoverableMessageHandlingException::class, $e);
+        } finally {
+            chmod($site, 0o755);
+        }
+
+        self::assertSame([], $this->statements);
+        self::assertSame([], $this->callbacks);
     }
 
     // --- the callback is never allowed to fail the message ----------------

@@ -88,6 +88,25 @@ final class BuildContextProcessorTest extends KernelTestCase
         self::assertSame(self::BUILD_FIELDS + ['attempt' => 1], $processor(self::record())->extra);
     }
 
+    public function testLeavesOutTheBuildIdOfADelete(): void
+    {
+        $delete = new BuildJob(
+            build_id: null,
+            static_site_id: self::BUILD_FIELDS['static_site_id'],
+            operation: BuildOperation::Delete,
+            slug: self::BUILD_FIELDS['slug'],
+            callback_status_url: 'https://cloud.example.org/status',
+            created_at: '2026-09-17T10:00:00+00:00',
+        );
+        $processor = new BuildContextProcessor();
+        $processor->onMessageReceived(self::received(new Envelope($delete)));
+
+        self::assertSame(
+            ['static_site_id' => self::BUILD_FIELDS['static_site_id'], 'operation' => 'delete', 'slug' => self::BUILD_FIELDS['slug'], 'attempt' => 1],
+            $processor(self::record())->extra,
+        );
+    }
+
     public function testCountsARetryAsTheSecondAttempt(): void
     {
         $processor = new BuildContextProcessor();

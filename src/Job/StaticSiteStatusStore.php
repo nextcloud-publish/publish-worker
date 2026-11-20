@@ -9,11 +9,12 @@ use Doctrine\DBAL\Connection;
 /**
  * Writes a build's outcome to publish's static_site table: the only SQL the worker runs.
  * publish owns the table and creates the entry as `pending` with the build_id it enqueued.
- * A published build sets the status to `published`, a failed update sets it to `failed`.
- * A failed create deletes the entry, so the client can POST the site again without a conflict.
+ * A published build sets the status to `published`, a failed update or delete sets it to `failed`.
+ * A delete and a failed create delete the entry, so the client can POST the site again without a conflict.
  *
- * Each statement is fenced on build_id, so a build publish has since replaced, or whose site was
- * deleted, changes nothing: the methods then return false. Repeating one is harmless.
+ * The status updates of a build are fenced on its build_id, so a build publish has since replaced, or whose
+ * site was deleted, changes nothing: the methods then return false. A delete has no build_id and goes by the
+ * site's id alone. Repeating any statement is harmless.
  *
  * @param Connection $connection The connection to publish's database.
  */
@@ -39,11 +40,19 @@ final class StaticSiteStatusStore
 
     /**
      * Sets the status to `failed`, publish's App\Entity\StaticSiteStatus::Failed.
+     * Fenced on $buildId when it is set; a delete passes null.
      *
      * @throws \Doctrine\DBAL\Exception if the database cannot be reached or rejects the update
      */
-    public function markFailed(string $staticSiteId, string $buildId): bool
+    public function markFailed(string $staticSiteId, ?string $buildId): bool
     {
+        if ($buildId === null) {
+            return $this->connection->executeStatement(
+                "UPDATE static_site SET status = 'failed' WHERE id = ?",
+                [$staticSiteId],
+            ) === 1;
+        }
+
         return $this->connection->executeStatement(
             "UPDATE static_site SET status = 'failed' WHERE id = ? AND build_id = ?",
             [$staticSiteId, $buildId],
@@ -51,11 +60,11 @@ final class StaticSiteStatusStore
     }
 
     /** @throws \Doctrine\DBAL\Exception if the database cannot be reached or rejects the delete */
-    public function deleteSite(string $staticSiteId, string $buildId): bool
+    public function deleteSite(string $staticSiteId): bool
     {
         return $this->connection->executeStatement(
-            'DELETE FROM static_site WHERE id = ? AND build_id = ?',
-            [$staticSiteId, $buildId],
+            'DELETE FROM static_site WHERE id = ?',
+            [$staticSiteId],
         ) === 1;
     }
 }

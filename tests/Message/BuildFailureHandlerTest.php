@@ -129,7 +129,7 @@ final class BuildFailureHandlerTest extends TestCase
         BuildOperation $operation = BuildOperation::Create,
     ): BuildJob {
         return new BuildJob(
-            build_id: self::BUILD_ID,
+            build_id: $operation === BuildOperation::Delete ? null : self::BUILD_ID,
             static_site_id: $staticSiteId,
             operation: $operation,
             slug: self::SLUG,
@@ -239,7 +239,7 @@ final class BuildFailureHandlerTest extends TestCase
 
         $this->buildFailureHandler()->onMessageFailed($this->failedEvent(new \RuntimeException('Extracting failed')));
 
-        self::assertSame([['DELETE', self::SITE_ID, self::BUILD_ID]], $this->statements);
+        self::assertSame([['DELETE', self::SITE_ID]], $this->statements);
         self::assertSame(0, $callbacksBefore, 'the entry is deleted before the callback');
         self::assertCount(1, $this->callbacks);
     }
@@ -273,6 +273,17 @@ final class BuildFailureHandlerTest extends TestCase
 
         self::assertDirectoryExists($publishSiteDir);
         self::assertSame([['UPDATE', self::SITE_ID, self::BUILD_ID]], $this->statements);
+        self::assertSame('failed', $this->callbacks[0]['status'] ?? null);
+    }
+
+    /** Whatever the delete did not remove is still served, so the entry stays and is marked failed. */
+    public function testAFailedDeleteMarksItsEntryFailed(): void
+    {
+        $this->buildFailureHandler()->onMessageFailed(
+            $this->failedEvent(new \RuntimeException('Could not remove the published site'), message: $this->job(operation: BuildOperation::Delete)),
+        );
+
+        self::assertSame([['UPDATE', self::SITE_ID]], $this->statements);
         self::assertSame('failed', $this->callbacks[0]['status'] ?? null);
     }
 
