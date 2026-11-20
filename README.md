@@ -265,11 +265,19 @@ before updating, follows the pull command.
 php bin/phpunit
 ```
 
-The tests need a Postgres on the host, the same one publish's tests use (`.env.test`: user
-`publish`, password `secret`). They run in their own database, `publish_worker_test`; create it once:
+The tests in the `database` group need `pdo_pgsql` and a Postgres on the host, the same one
+publish's tests use (`.env.test`: user `publish`, password `secret`). They run in their own
+database, `publish_worker_test`; create it once:
 
 ```bash
 php bin/console doctrine:database:create --env=test --if-not-exists
+```
+
+The pre-commit hook leaves that group out, and CI runs it against its own Postgres. Without a
+Postgres, run the rest:
+
+```bash
+php bin/phpunit --exclude-group database
 ```
 
 `StaticSiteStatusStoreTest` recreates `static_site` from `tests/fixtures/static_site.sql`, a copy

@@ -6,6 +6,7 @@ namespace App\Tests\Job;
 
 use App\Job\StaticSiteStatusStore;
 use Doctrine\DBAL\Connection;
+use PHPUnit\Framework\Attributes\Group;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 
 /**
@@ -13,6 +14,7 @@ use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
  * The table comes from tests/fixtures/static_site.sql, the copy of publish's migration, so this
  * fails when the worker's SQL no longer fits publish's schema.
  */
+#[Group('database')]
 final class StaticSiteStatusStoreTest extends KernelTestCase
 {
     private const SITE_ID = '11f5b798-6f34-4951-ad8b-bfd623ded5c2';
