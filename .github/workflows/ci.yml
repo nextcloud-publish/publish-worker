@@ -17,7 +17,7 @@ permissions:
 env:
   PHP_VERSION: '8.5'
   BUILDS_DIR: /tmp/publish-worker-ci/builds
-  PAGES_DIR: /tmp/publish-worker-ci/pages
+  SITES_DIR: /tmp/publish-worker-ci/sites
   PUBLISH_BASE_URL: http://sites.test
   # The postgres service of the test job. lint:container and cache:warmup never connect: serverVersion
   # names the platform.

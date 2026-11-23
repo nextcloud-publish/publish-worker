@@ -16,20 +16,20 @@ use PHPUnit\Framework\TestCase;
 final class SiteRendererTest extends TestCase
 {
     private string $tmp;
-    private string $pagesDir;
+    private string $contentDir;
     private string $outputDir;
 
     protected function setUp(): void
     {
         $this->tmp = sys_get_temp_dir() . '/worker-render-test-' . bin2hex(random_bytes(6));
-        $this->pagesDir = $this->tmp . '/content_unarchived';
+        $this->contentDir = $this->tmp . '/content_unarchived';
         $this->outputDir = $this->tmp . '/output';
 
-        mkdir($this->pagesDir . '/Cats', 0o755, true);
+        mkdir($this->contentDir . '/Cats', 0o755, true);
         mkdir($this->outputDir, 0o755, true);
 
-        file_put_contents($this->pagesDir . '/Readme.md', "# Welcome\n\nSome **bold** text.\n");
-        file_put_contents($this->pagesDir . '/Cats/Readme.md', "# Cats\n\nThey nap.\n");
+        file_put_contents($this->contentDir . '/Readme.md', "# Welcome\n\nSome **bold** text.\n");
+        file_put_contents($this->contentDir . '/Cats/Readme.md', "# Cats\n\nThey nap.\n");
     }
 
     protected function tearDown(): void
@@ -41,7 +41,7 @@ final class SiteRendererTest extends TestCase
 
     public function testRendersPagesIntoTheOutputDirectory(): void
     {
-        $pages = (new SiteRenderer())->render($this->pagesDir, $this->outputDir, 'my_collective');
+        $pages = (new SiteRenderer())->render($this->contentDir, $this->outputDir, 'my_collective');
 
         self::assertGreaterThan(0, $pages);
         self::assertFileExists($this->outputDir . '/index.html');
@@ -55,7 +55,7 @@ final class SiteRendererTest extends TestCase
     /** The heading comes from BuildJob::$title. Without this the header would read the library's default on every published site. */
     public function testPutsTheGivenSiteTitleOnThePage(): void
     {
-        (new SiteRenderer())->render($this->pagesDir, $this->outputDir, 'my_collective');
+        (new SiteRenderer())->render($this->contentDir, $this->outputDir, 'my_collective');
 
         self::assertStringContainsString(
             'my_collective',
@@ -66,7 +66,7 @@ final class SiteRendererTest extends TestCase
     /** The library copies these out of its own src/. A vendored install missing them renders an unstyled site rather than failing. */
     public function testCopiesTheStylesheetAndThemeScript(): void
     {
-        (new SiteRenderer())->render($this->pagesDir, $this->outputDir, 'my_collective');
+        (new SiteRenderer())->render($this->contentDir, $this->outputDir, 'my_collective');
 
         self::assertFileExists($this->outputDir . '/style.css');
         self::assertFileExists($this->outputDir . '/theme.js');
@@ -99,7 +99,7 @@ final class SiteRendererTest extends TestCase
 
     public function testForwardsTheThemeRenderOptionToSiteBuilder(): void
     {
-        (new SiteRenderer())->render($this->pagesDir, $this->outputDir, 'my_collective', ['theme' => 'colorful']);
+        (new SiteRenderer())->render($this->contentDir, $this->outputDir, 'my_collective', ['theme' => 'colorful']);
 
         self::assertStringContainsString(
             'Back for more',
@@ -113,6 +113,6 @@ final class SiteRendererTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Unknown render option: unsupported');
 
-        (new SiteRenderer())->render($this->pagesDir, $this->outputDir, 'my_collective', ['unsupported' => 'whatever']);
+        (new SiteRenderer())->render($this->contentDir, $this->outputDir, 'my_collective', ['unsupported' => 'whatever']);
     }
 }

@@ -94,7 +94,7 @@ final class BuildFailureHandlerTest extends TestCase
      */
     private function jobWorkspace(): JobWorkspace
     {
-        return new JobWorkspace(new Filesystem($this->logger()), $this->logger(), $this->buildsDir(), $this->root . '/pages', 'http://sites.test');
+        return new JobWorkspace(new Filesystem($this->logger()), $this->logger(), $this->buildsDir(), $this->root . '/sites', 'http://sites.test');
     }
 
     /**
@@ -111,7 +111,7 @@ final class BuildFailureHandlerTest extends TestCase
             $this->statusStore(),
             $this->logger(),
             $this->buildsDir(),
-            $this->root . '/pages',
+            $this->root . '/sites',
         );
     }
 
@@ -418,7 +418,7 @@ final class BuildFailureHandlerTest extends TestCase
     {
         $error = $this->reportedErrorFor(
             'Could not move ' . $this->buildsDir() . '/a/b/output to '
-            . $this->root . '/pages/.staging/b: No space left on device',
+            . $this->root . '/sites/.staging/b: No space left on device',
         );
 
         self::assertStringContainsString('<build>', $error);
@@ -502,10 +502,10 @@ final class BuildFailureHandlerTest extends TestCase
             $this->statusStore(),
             $this->logger(),
             '/srv',
-            '/srv/pages',
+            '/srv/sites',
         );
 
-        $handler->onMessageFailed($this->failedEvent(new \RuntimeException('at /srv/pages/demo')));
+        $handler->onMessageFailed($this->failedEvent(new \RuntimeException('at /srv/sites/demo')));
 
         self::assertStringContainsString('<published>', $this->firstReportedError());
     }

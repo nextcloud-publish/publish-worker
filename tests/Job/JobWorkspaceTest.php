@@ -35,7 +35,7 @@ final class JobWorkspaceTest extends TestCase
     }
 
     /**
-     * A workspace rooted at $baseDir, publishing into a "pages" folder inside it.
+     * A workspace rooted at $baseDir, publishing into a "sites" folder inside it.
      *
      * @param ?string $baseDir The build root to use, or null for $this->baseDir.
      * @return JobWorkspace the workspace under test
@@ -44,7 +44,7 @@ final class JobWorkspaceTest extends TestCase
     {
         $base = $baseDir ?? $this->baseDir;
 
-        return new JobWorkspace(new Filesystem(new NullLogger()), new NullLogger(), $base, $base . '/pages', 'http://sites.test');
+        return new JobWorkspace(new Filesystem(new NullLogger()), new NullLogger(), $base, $base . '/sites', 'http://sites.test');
     }
 
     /**
@@ -200,7 +200,7 @@ final class JobWorkspaceTest extends TestCase
      */
     private function paths(): JobWorkspace
     {
-        return new JobWorkspace(new Filesystem(new NullLogger()), new NullLogger(), '/srv/builds', '/srv/pages', 'https://sites.example.org');
+        return new JobWorkspace(new Filesystem(new NullLogger()), new NullLogger(), '/srv/builds', '/srv/sites', 'https://sites.example.org');
     }
 
     public function testTheJobTreeIsKeyedOnBuild(): void
@@ -219,17 +219,17 @@ final class JobWorkspaceTest extends TestCase
     /** The roots and the base URL are set by hand in compose, so a trailing slash is likely. */
     public function testNormalisesATrailingSlashOnTheRoots(): void
     {
-        $paths = new JobWorkspace(new Filesystem(new NullLogger()), new NullLogger(), '/srv/builds/', '/srv/pages/', 'https://sites.example.org/');
+        $paths = new JobWorkspace(new Filesystem(new NullLogger()), new NullLogger(), '/srv/builds/', '/srv/sites/', 'https://sites.example.org/');
 
         self::assertSame('/srv/builds/' . self::BUILD, $paths->buildJobDir(self::BUILD));
-        self::assertSame('/srv/pages/demo-site', $paths->publishSiteDir(self::SLUG));
+        self::assertSame('/srv/sites/demo-site', $paths->publishSiteDir(self::SLUG));
         self::assertSame('https://sites.example.org/demo-site/', $paths->publishUrl(self::SLUG));
     }
 
     /** The published tree is keyed on the slug, which publish keeps unique across sites. */
     public function testThePublishedSiteIsKeyedOnTheSlug(): void
     {
-        self::assertSame('/srv/pages/demo-site', $this->paths()->publishSiteDir(self::SLUG));
+        self::assertSame('/srv/sites/demo-site', $this->paths()->publishSiteDir(self::SLUG));
     }
 
     /** The URL mirrors the published tree, with a trailing slash because it names a directory. */
@@ -246,7 +246,7 @@ final class JobWorkspaceTest extends TestCase
     {
         $paths = $this->paths();
 
-        self::assertStringStartsWith('/srv/pages/.staging/', $paths->publishStagingDir(self::BUILD));
+        self::assertStringStartsWith('/srv/sites/.staging/', $paths->publishStagingDir(self::BUILD));
         self::assertStringContainsString('/.', $paths->publishStagingDir(self::BUILD));
     }
 
@@ -255,7 +255,7 @@ final class JobWorkspaceTest extends TestCase
     {
         $paths = $this->paths();
 
-        self::assertSame('/srv/pages/.staging/' . self::BUILD, $paths->publishStagingDir(self::BUILD));
+        self::assertSame('/srv/sites/.staging/' . self::BUILD, $paths->publishStagingDir(self::BUILD));
         self::assertNotSame($paths->publishStagingDir(self::BUILD), $paths->publishStagingDir('0199a1b2-3c4d-7e5f-8a9b-ffffffffffff'));
     }
 }

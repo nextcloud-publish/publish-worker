@@ -25,7 +25,7 @@ COPY --from=composer/composer:2-bin /composer /usr/bin/composer
 COPY composer.json composer.lock symfony.lock ./
 RUN composer install --no-scripts --no-interaction --no-progress
 
-# var/ holds the Symfony cache, var/log/, var/builds/ and var/pages/, the only directory the worker writes.
+# var/ holds the Symfony cache, var/log/, var/builds/ and var/sites/, the only directory the worker writes.
 # var/builds exists so a new named volume mounted there belongs to publish-worker.
 RUN mkdir -p var/builds && chown -R publish-worker:publish-worker var
 

@@ -17,7 +17,7 @@ use Psr\Log\LoggerInterface;
  *         content_unarchived/          buildJobUnarchivedDir(), the archive is unpacked here and the renderer reads it
  *       output/                        buildJobOutputDir(), 0750, the renderer writes this
  *
- *   {pagesDir}/                        PAGES_DIR, the bind mount nginx serves
+ *   {sitesDir}/                        SITES_DIR, the bind mount nginx serves
  *     .staging/                        dotted so nginx 404s it
  *       {buildId}/                     publishStagingDir(), the rendered pages before they go live; dirs 0755, files 0644 from here down
  *     {slug}/                          publishSiteDir(), the live site, served at publishUrl(); replaced by the staged {buildId}/
@@ -25,7 +25,7 @@ use Psr\Log\LoggerInterface;
  * @param Filesystem $filesystem The filesystem operations to run the layout with.
  * @param LoggerInterface $logger The app logger.
  * @param string $buildsDir The directory to store the build temporary files.
- * @param string $pagesDir The directory to store the published files.
+ * @param string $sitesDir The directory to store the published files.
  * @param string $publishBaseUrl The public URL the published directory is served at.
  */
 final class JobWorkspace
@@ -43,7 +43,7 @@ final class JobWorkspace
         private readonly Filesystem $filesystem,
         private readonly LoggerInterface $logger,
         private readonly string $buildsDir,
-        private readonly string $pagesDir,
+        private readonly string $sitesDir,
         private readonly string $publishBaseUrl,
     ) {
     }
@@ -74,16 +74,16 @@ final class JobWorkspace
         return $this->buildJobDir($buildId) . '/' . self::OUTPUT_DIR;
     }
 
-    /** {pagesDir}/{slug} -- the live site. */
+    /** {sitesDir}/{slug} -- the live site. */
     public function publishSiteDir(string $slug): string
     {
-        return rtrim($this->pagesDir, '/') . '/' . $slug;
+        return rtrim($this->sitesDir, '/') . '/' . $slug;
     }
 
     /** Intermediate directory where build html site is copied to before being published. */
     public function publishStagingDir(string $buildId): string
     {
-        return rtrim($this->pagesDir, '/') . '/' . self::STAGING_DIR . '/' . $buildId;
+        return rtrim($this->sitesDir, '/') . '/' . self::STAGING_DIR . '/' . $buildId;
     }
 
     /** {publishBaseUrl}/{slug}/ -- the public URL of a published site. */
@@ -121,7 +121,7 @@ final class JobWorkspace
     }
 
     /**
-     * Moves the rendered html pages to the published directory at {pagesDir}/{slug}.
+     * Moves the rendered html pages to the published directory at {sitesDir}/{slug}.
      * The pages are staged in a staging directory, which then replaces the site directory.
      *
      * @param string $buildId The build id to publish.

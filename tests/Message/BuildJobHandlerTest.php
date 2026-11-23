@@ -133,11 +133,11 @@ final class BuildJobHandlerTest extends TestCase
     /**
      * The published root for this test.
      *
-     * @return string the PAGES_DIR equivalent
+     * @return string the SITES_DIR equivalent
      */
     private function publishedRoot(): string
     {
-        return $this->root . '/pages';
+        return $this->root . '/sites';
     }
 
     /**

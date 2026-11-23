@@ -30,7 +30,7 @@ COPY . .
 RUN composer dump-autoload --no-dev --classmap-authoritative \
     && composer dump-env prod
 
-# var/ holds the Symfony cache, var/log/, var/builds/ and var/pages/, the only directory the worker writes.
+# var/ holds the Symfony cache, var/log/, var/builds/ and var/sites/, the only directory the worker writes.
 # var/builds exists so a new named volume mounted there belongs to publish-worker.
 RUN mkdir -p var/builds && chown -R publish-worker:publish-worker var
 

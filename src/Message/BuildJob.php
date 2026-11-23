@@ -16,7 +16,7 @@ namespace App\Message;
  *                         null for a delete, which builds nothing.
  * @param string $static_site_id Identifies the site in publish's static_site table.
  * @param BuildOperation $operation What to do with the site.
- * @param string $slug Unique across sites; names the site's directory under PAGES_DIR and its URL path.
+ * @param string $slug Unique across sites; names the site's directory under SITES_DIR and its URL path.
  * @param string $callback_status_url Callback url to update the build status
  * @param string $created_at Timestamp when the job was created by the publish API.
  * @param ?string $content_download_url Download url for the build assets; set for create and update.

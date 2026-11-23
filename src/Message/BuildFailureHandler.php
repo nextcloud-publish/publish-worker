@@ -24,7 +24,7 @@ use Symfony\Component\Messenger\Event\WorkerMessageFailedEvent;
  * @param StaticSiteStatusStore $statusStore Deletes or marks failed the build's entry in publish's static_site table.
  * @param LoggerInterface $logger The app logger.
  * @param string $buildsDir The build temp directory.
- * @param string $pagesDir The published directory.
+ * @param string $sitesDir The published directory.
  */
 final class BuildFailureHandler implements EventSubscriberInterface
 {
@@ -43,11 +43,11 @@ final class BuildFailureHandler implements EventSubscriberInterface
         private readonly StaticSiteStatusStore $statusStore,
         private readonly LoggerInterface $logger,
         string $buildsDir,
-        string $pagesDir,
+        string $sitesDir,
     ) {
         $roots = [
             rtrim($buildsDir, '/') => '<build>',
-            rtrim($pagesDir, '/') => '<published>',
+            rtrim($sitesDir, '/') => '<published>',
         ];
 
         // Longest first, so a root nested inside another is replaced by its own

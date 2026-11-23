@@ -14,8 +14,8 @@ result queue.
 
 ```text
 BUILDS_DIR/<build_id>/{input,output}      build scratch, 0750
-PAGES_DIR/<slug>/                        the live site, served at PUBLISH_BASE_URL/<slug>/
-PAGES_DIR/.staging/<build_id>/           the build before it goes live
+SITES_DIR/<slug>/                        the live site, served at PUBLISH_BASE_URL/<slug>/
+SITES_DIR/.staging/<build_id>/           the build before it goes live
 ```
 
 [JobWorkspace](../src/Job/JobWorkspace.php) builds every path.
@@ -24,7 +24,7 @@ PAGES_DIR/.staging/<build_id>/           the build before it goes live
   The renderer does not clear `output/`, so a shared one would republish deleted pages.
 - The two roots may be on different mounts. `rename()` fails across mounts with `EXDEV`, so
   [Filesystem::moveDir()](../src/Job/Filesystem.php) falls back to a recursive copy.
-- `.staging` lives inside `PAGES_DIR`, so the final swap is a rename on one mount. nginx's
+- `.staging` lives inside `SITES_DIR`, so the final swap is a rename on one mount. nginx's
   `location ~ /\.` answers 404 for it.
 - A failed build's directory is deleted. The callback error and the `Build failed` log line are
   its only record.
@@ -38,7 +38,7 @@ The handler calls `reset()` at the start of every attempt, `publish()` on succes
    touch the live site.
 2. Sets the staged tree to `0755` for directories and `0644` for files, so nginx can read it.
    `output/` is `0750`, and files from the archive keep their tarball modes.
-3. Deletes `PAGES_DIR/<slug>/` and renames the staged directory in its place.
+3. Deletes `SITES_DIR/<slug>/` and renames the staged directory in its place.
    `rename()` onto a non-empty directory fails with `ENOTEMPTY`.
 
 `publish()` refuses an empty `output/`, so a build with no pages never replaces a live site.
@@ -89,13 +89,13 @@ UPDATE static_site SET status = 'published' WHERE id = :static_site_id AND build
 ```
 
 A create that fails for good leaves nothing behind, so the client can POST the site again without
-a conflict. `BuildFailureHandler` removes `PAGES_DIR/<slug>/`, then the entry:
+a conflict. `BuildFailureHandler` removes `SITES_DIR/<slug>/`, then the entry:
 
 ```sql
 DELETE FROM static_site WHERE id = :static_site_id
 ```
 
-A delete builds nothing and carries no `build_id`. It removes `PAGES_DIR/<slug>/`, then the entry
+A delete builds nothing and carries no `build_id`. It removes `SITES_DIR/<slug>/`, then the entry
 with the same `DELETE`, then PATCHes `deleted`. When the directory cannot be removed it throws a
 `\RuntimeException`, so the entry stays while the files are served.
 

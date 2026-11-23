@@ -37,7 +37,7 @@ final class JobWorkspacePublishTest extends TestCase
             new Filesystem(new NullLogger()),
             new NullLogger(),
             $this->root . '/builds',
-            $this->root . '/pages',
+            $this->root . '/sites',
             'http://sites.test',
         );
     }
@@ -266,7 +266,7 @@ final class JobWorkspacePublishTest extends TestCase
 
         $this->workspace->publish(self::BUILD, self::SLUG);
 
-        self::assertFileExists($this->root . '/pages/' . self::SLUG . '/index.html');
+        self::assertFileExists($this->root . '/sites/' . self::SLUG . '/index.html');
     }
 
     /** The published tree is keyed on the slug, so two sites never touch each other's directory. */
