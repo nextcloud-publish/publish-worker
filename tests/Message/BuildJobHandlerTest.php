@@ -301,7 +301,7 @@ final class BuildJobHandlerTest extends TestCase
 
     public function testBuildSucceedsWhenRenderOptionsArePresent(): void
     {
-        ($this->buildJobHandler())($this->job(renderOptions: ['theme' => 'colorful']));
+        ($this->buildJobHandler())($this->job(renderOptions: ['theme' => 'topnav']));
 
         self::assertFileExists($this->publishedSite() . '/index.html');
     }
@@ -484,7 +484,7 @@ final class BuildJobHandlerTest extends TestCase
     public function testInvalidRenderOptionsAreTerminal(): void
     {
         try {
-            ($this->buildJobHandler())($this->job(renderOptions: 'colorful'));
+            ($this->buildJobHandler())($this->job(renderOptions: 'topnav'));
             self::fail('Expected invalid render options to be refused.');
         } catch (UnrecoverableMessageHandlingException $e) {
             self::assertStringContainsString('render_options must be a JSON object', $e->getMessage());

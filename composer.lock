@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "a8b85a5a076429ccdb65320ec147cc5f",
+    "content-hash": "351a99ab426f58d19bf2d6157a7e9ca2",
     "packages": [
         {
             "name": "dflydev/dot-access-data",
@@ -1291,17 +1291,11 @@
         },
         {
             "name": "nextcloud-publish/ssg-library",
-            "version": "0.2.0",
+            "version": "0.4.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/nextcloud-publish/ssg-library.git",
-                "reference": "92b213873683c264ec191865b26651675da03aea"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/nextcloud-publish/ssg-library/zipball/92b213873683c264ec191865b26651675da03aea",
-                "reference": "92b213873683c264ec191865b26651675da03aea",
-                "shasum": ""
+                "reference": "9dd4f9c8be5deb2f801d96df23762b76734f83f0"
             },
             "require": {
                 "ext-json": "*",
@@ -1312,6 +1306,9 @@
                 "scrivo/highlight.php": "^9.18"
             },
             "require-dev": {
+                "friendsofphp/php-cs-fixer": "^3.95",
+                "phpstan/phpstan": "^2.3",
+                "phpstan/phpstan-phpunit": "^2.1",
                 "phpunit/phpunit": "^13.3"
             },
             "bin": [
@@ -1332,11 +1329,7 @@
                 "AGPL-3.0-or-later"
             ],
             "description": "CommonMark-based static site generator for Collectives page exports",
-            "support": {
-                "source": "https://github.com/nextcloud-publish/ssg-library/tree/0.2.0",
-                "issues": "https://github.com/nextcloud-publish/ssg-library/issues"
-            },
-            "time": "2026-11-11T11:12:45+00:00"
+            "time": "2026-11-25T10:44:19+00:00"
         },
         {
             "name": "psr/cache",
@@ -6408,7 +6401,8 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-10-28T22:38:53+00:00"
+            "time": "2026-10-28T22:38:53+00:00",
+            "published-time": "2026-10-28T22:39:06+00:00"
         },
         {
             "name": "phpstan/phpstan-phpunit",
@@ -8975,5 +8969,5 @@
         "ext-pdo_pgsql": "*"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.9.0"
+    "plugin-api-version": "2.11.0"
 }

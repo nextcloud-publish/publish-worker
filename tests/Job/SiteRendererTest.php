@@ -99,11 +99,11 @@ final class SiteRendererTest extends TestCase
 
     public function testForwardsTheThemeRenderOptionToSiteBuilder(): void
     {
-        (new SiteRenderer())->render($this->contentDir, $this->outputDir, 'my_collective', ['theme' => 'colorful']);
+        (new SiteRenderer())->render($this->contentDir, $this->outputDir, 'my_collective', ['theme' => 'topnav']);
 
         self::assertStringContainsString(
-            'Back for more',
-            (string) file_get_contents($this->outputDir . '/Cats/index.html'),
+            '`topnav` layout',
+            (string) file_get_contents($this->outputDir . '/layout.css'),
         );
     }
 

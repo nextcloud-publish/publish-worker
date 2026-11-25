@@ -37,6 +37,8 @@ Update together with publish, which stores every site in its `static_site` table
   again for the new URL.
 - **Breaking:** `PAGES_DIR` is `SITES_DIR`, default `var/sites` instead of `var/pages`. A
   deployment that sets `PAGES_DIR` renames it and moves its sites.
+- Requires ssg-library `^0.4` instead of `^0.2`. The images ship `git`, which composer uses to
+  fetch it.
 
 ## [0.6.0] - 2026-11-15
 

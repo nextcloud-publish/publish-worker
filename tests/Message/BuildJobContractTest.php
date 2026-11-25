@@ -187,10 +187,10 @@ final class BuildJobContractTest extends KernelTestCase
     public static function renderOptionsValues(): array
     {
         return [
-            'object' => [['theme' => 'colorful', 'nested' => ['a' => 1]]],
+            'object' => [['theme' => 'topnav', 'nested' => ['a' => 1]]],
             'empty object' => [[]],
-            'list' => [['colorful', 'muted']],
-            'string' => ['colorful'],
+            'list' => [['topnav', 'wiki']],
+            'string' => ['topnav'],
             'number' => [42],
             'null' => [null],
         ];
