@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Update together with publish, which stores every site in its `static_site` table and passes
+## [0.7.0] - 2026-11-26
+
+Update together with publish 0.6.0, which stores every site in its `static_site` table and passes
 `DATABASE_URL` to the worker. The worker needs it: without it the first build fails. Rename
 `PAGES_DIR` to `SITES_DIR` where it is set, and move the published sites from `var/pages` to
 `var/sites` or to the new mount.
@@ -155,7 +157,8 @@ need the new name.
   GHCR.
 - Pre-commit hooks that run the CI lint and test steps.
 
-[Unreleased]: https://github.com/nextcloud-publish/publish-worker/compare/0.6.0...HEAD
+[Unreleased]: https://github.com/nextcloud-publish/publish-worker/compare/0.7.0...HEAD
+[0.7.0]: https://github.com/nextcloud-publish/publish-worker/releases/tag/0.7.0
 [0.6.0]: https://github.com/nextcloud-publish/publish-worker/releases/tag/0.6.0
 [0.5.0]: https://github.com/nextcloud-publish/publish-worker/releases/tag/0.5.0
 [0.4.0]: https://github.com/nextcloud-publish/publish-worker/releases/tag/0.4.0
