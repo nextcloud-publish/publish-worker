@@ -112,6 +112,14 @@ final class StatusNotifierTest extends TestCase
         ], self::decodeJson($seen['options']['body'] ?? null));
     }
 
+    /** The raw body is compared, because a decoded {} and [] are the same PHP array. */
+    public function testPatchesTheStatusAndAnEmptyDataObjectWhenDeleted(): void
+    {
+        $this->statusNotifier($this->recordingClient())->notifyDeleted(self::URL);
+
+        self::assertSame('{"status":"deleted","data":{}}', $this->seenRequest()['options']['body'] ?? null);
+    }
+
     public function testPostsStatusAndErrorMessageWhenFailed(): void
     {
         $this->statusNotifier($this->recordingClient())->notifyFailed(

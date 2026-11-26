@@ -37,6 +37,9 @@ framework:
 
                 # No failure_transport: on the last attempt BuildFailureHandler reports `failed` and the message is acked.
 
+        # No doctrine_ping_connection or doctrine_close_connection middleware: both need the ORM, which
+        # the worker does not have. App\Messenger\FreshDatabaseConnection does their job with DBAL only.
+
 when@test:
     framework:
         messenger:

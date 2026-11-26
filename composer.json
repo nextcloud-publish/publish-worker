@@ -8,7 +8,10 @@
         "ext-ctype": "*",
         "ext-iconv": "*",
         "ext-pcntl": "*",
-        "nextcloud-publish/ssg-library": "^0.2",
+        "ext-pdo_pgsql": "*",
+        "doctrine/dbal": "^4.6",
+        "doctrine/doctrine-bundle": "^3.4",
+        "nextcloud-publish/ssg-library": "^0.4",
         "sentry/sentry-symfony": "^5.15",
         "symfony/amqp-messenger": "8.1.*",
         "symfony/console": "8.1.*",
@@ -25,7 +28,7 @@
     },
     "repositories": [
         {
-            "type": "vcs",
+            "type": "git",
             "url": "https://github.com/nextcloud-publish/ssg-library.git"
         }
     ],

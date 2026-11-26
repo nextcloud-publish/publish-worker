@@ -17,17 +17,15 @@ use Psr\Log\LoggerInterface;
  *         content_unarchived/          buildJobUnarchivedDir(), the archive is unpacked here and the renderer reads it
  *       output/                        buildJobOutputDir(), 0750, the renderer writes this
  *
- *   {pagesDir}/                        PAGES_DIR, the bind mount nginx serves
+ *   {sitesDir}/                        SITES_DIR, the bind mount nginx serves
  *     .staging/                        dotted so nginx 404s it
- *       {buildId}/                     publishStagingDir(), the build before it goes live; dirs 0755, files 0644 from here down
- *         {slug}/                      the rendered pages
- *     {staticSiteId}/                  publishSiteDir(), replaced by the staged {buildId}/, holds only the current slug
- *       {slug}/                        the live site, served at publishUrl()
+ *       {buildId}/                     publishStagingDir(), the rendered pages before they go live; dirs 0755, files 0644 from here down
+ *     {slug}/                          publishSiteDir(), the live site, served at publishUrl(); replaced by the staged {buildId}/
  *
  * @param Filesystem $filesystem The filesystem operations to run the layout with.
  * @param LoggerInterface $logger The app logger.
  * @param string $buildsDir The directory to store the build temporary files.
- * @param string $pagesDir The directory to store the published files.
+ * @param string $sitesDir The directory to store the published files.
  * @param string $publishBaseUrl The public URL the published directory is served at.
  */
 final class JobWorkspace
@@ -45,7 +43,7 @@ final class JobWorkspace
         private readonly Filesystem $filesystem,
         private readonly LoggerInterface $logger,
         private readonly string $buildsDir,
-        private readonly string $pagesDir,
+        private readonly string $sitesDir,
         private readonly string $publishBaseUrl,
     ) {
     }
@@ -76,22 +74,22 @@ final class JobWorkspace
         return $this->buildJobDir($buildId) . '/' . self::OUTPUT_DIR;
     }
 
-    /** {pagesDir}/{staticSiteId} -- holds the site's one published slug directory. */
-    public function publishSiteDir(string $staticSiteId): string
+    /** {sitesDir}/{slug} -- the live site. */
+    public function publishSiteDir(string $slug): string
     {
-        return rtrim($this->pagesDir, '/') . '/' . $staticSiteId;
+        return rtrim($this->sitesDir, '/') . '/' . $slug;
     }
 
     /** Intermediate directory where build html site is copied to before being published. */
     public function publishStagingDir(string $buildId): string
     {
-        return rtrim($this->pagesDir, '/') . '/' . self::STAGING_DIR . '/' . $buildId;
+        return rtrim($this->sitesDir, '/') . '/' . self::STAGING_DIR . '/' . $buildId;
     }
 
-    /** {publishBaseUrl}/{staticSiteId}/{slug}/ -- the public URL of a published site. */
-    public function publishUrl(string $staticSiteId, string $slug): string
+    /** {publishBaseUrl}/{slug}/ -- the public URL of a published site. */
+    public function publishUrl(string $slug): string
     {
-        return rtrim($this->publishBaseUrl, '/') . '/' . $staticSiteId . '/' . $slug . '/';
+        return rtrim($this->publishBaseUrl, '/') . '/' . $slug . '/';
     }
 
     // --- lifecycle --------------------------------------------------------
@@ -123,28 +121,25 @@ final class JobWorkspace
     }
 
     /**
-     * Moves the rendered html pages to the published directory at {pagesDir}/{staticSiteId}/{slug}.
-     * The pages are staged as {slug}/ inside a staging directory, which then replaces the whole site directory.
-     * Any slug directory published earlier for the same site is removed with it.
+     * Moves the rendered html pages to the published directory at {sitesDir}/{slug}.
+     * The pages are staged in a staging directory, which then replaces the site directory.
      *
      * @param string $buildId The build id to publish.
-     * @param string $staticSiteId The static site id to publish.
      * @param string $slug The slug to publish.
      * @return void
      * @throws \InvalidArgumentException if the build rendered nothing
      * @throws \RuntimeException         on a filesystem failure worth retrying
      */
-    public function publish(string $buildId, string $staticSiteId, string $slug): void
+    public function publish(string $buildId, string $slug): void
     {
         $buildJobOutputDir = $this->buildJobOutputDir($buildId);
-        $publishSiteDir = $this->publishSiteDir($staticSiteId);
+        $publishSiteDir = $this->publishSiteDir($slug);
         $publishStagingDir = $this->publishStagingDir($buildId);
 
         if (!is_dir($buildJobOutputDir)) {
             throw new \RuntimeException(sprintf(
-                'Nothing to publish for build %s of site %s: no build output at %s.',
+                'Nothing to publish for build %s: no build output at %s.',
                 $buildId,
-                $staticSiteId,
                 $buildJobOutputDir
             ));
         }
@@ -156,8 +151,8 @@ final class JobWorkspace
         }
 
         $this->filesystem->removeDir($publishStagingDir);
-        $this->filesystem->ensureDir($publishStagingDir, self::PUBLISHED_DIR_MODE);
-        $this->filesystem->moveDir($buildJobOutputDir, $publishStagingDir . '/' . $slug);
+        $this->filesystem->ensureDir(\dirname($publishStagingDir), self::PUBLISHED_DIR_MODE);
+        $this->filesystem->moveDir($buildJobOutputDir, $publishStagingDir);
 
         $this->filesystem->setFileAccess(
             $publishStagingDir,
@@ -168,6 +163,29 @@ final class JobWorkspace
         $this->filesystem->removeDir($publishSiteDir);
         $this->filesystem->rename($publishStagingDir, $publishSiteDir);
         $this->logger->debug('Moved site into place', ['from' => $publishStagingDir, 'to' => $publishSiteDir]);
+    }
+
+    /**
+     * Removes the site's published directory, for a build that failed after publishing it.
+     * A site that was never published is nothing to remove.
+     * Logs an error and returns false when that fails, rather than throwing.
+     *
+     * @param string $slug The site whose published directory to remove.
+     * @return bool true when nothing of the site is published any more, false when removal fails
+     */
+    public function unpublish(string $slug): bool
+    {
+        $publishSiteDir = $this->publishSiteDir($slug);
+        $existed = is_dir($publishSiteDir);
+        $removed = $this->filesystem->removeDir($publishSiteDir);
+
+        if (!$removed) {
+            $this->logger->error('Could not remove the published site', ['dir' => $publishSiteDir]);
+        } elseif ($existed) {
+            $this->logger->info('Removed the published site', ['dir' => $publishSiteDir]);
+        }
+
+        return $removed;
     }
 
     /**

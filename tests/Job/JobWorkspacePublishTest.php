@@ -22,7 +22,6 @@ use Psr\Log\NullLogger;
  */
 final class JobWorkspacePublishTest extends TestCase
 {
-    private const SITE = '11f5b798-6f34-4951-ad8b-bfd623ded5c2';
     private const BUILD = '0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b';
     private const SLUG = 'demo-site';
 
@@ -38,7 +37,7 @@ final class JobWorkspacePublishTest extends TestCase
             new Filesystem(new NullLogger()),
             new NullLogger(),
             $this->root . '/builds',
-            $this->root . '/pages',
+            $this->root . '/sites',
             'http://sites.test',
         );
     }
@@ -79,20 +78,20 @@ final class JobWorkspacePublishTest extends TestCase
     }
 
     /**
-     * The live slug directory for the site under test.
+     * The live directory of the site under test.
      *
-     * @return string the published slug path
+     * @return string the published site path
      */
     private function publishedSite(): string
     {
-        return $this->workspace->publishSiteDir(self::SITE) . '/' . self::SLUG;
+        return $this->workspace->publishSiteDir(self::SLUG);
     }
 
     public function testPublishesTheRenderedSite(): void
     {
         $this->givenBuildOutput();
 
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
 
         self::assertFileExists($this->publishedSite() . '/index.html');
         self::assertSame('<h1>hello</h1>', file_get_contents($this->publishedSite() . '/index.html'));
@@ -106,7 +105,7 @@ final class JobWorkspacePublishTest extends TestCase
     {
         $this->givenBuildOutput();
 
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
 
         self::assertDirectoryDoesNotExist($this->workspace->buildJobOutputDir(self::BUILD));
 
@@ -126,12 +125,10 @@ final class JobWorkspacePublishTest extends TestCase
 
         $this->givenBuildOutput();
 
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
 
-        foreach ([$this->workspace->publishSiteDir(self::SITE), $this->publishedSite()] as $dir) {
-            $mode = fileperms($dir) & 0o777;
-            self::assertSame(0o755, $mode, sprintf('%s is mode %o, not 0755', $dir, $mode));
-        }
+        $mode = fileperms($this->publishedSite()) & 0o777;
+        self::assertSame(0o755, $mode, sprintf('the published site is mode %o, not 0755', $mode));
     }
 
     /**
@@ -152,7 +149,7 @@ final class JobWorkspacePublishTest extends TestCase
         /** As if it came out of a tarball owner-only. */
         chmod($this->workspace->buildJobOutputDir(self::BUILD) . '/index.html', 0o600);
 
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
 
         self::assertSame(0o755, fileperms($this->publishedSite() . '/Cats') & 0o777);
         self::assertSame(0o644, fileperms($this->publishedSite() . '/index.html') & 0o777);
@@ -169,11 +166,11 @@ final class JobWorkspacePublishTest extends TestCase
             'index.html' => 'first build',
             'removed-later.html' => 'this page goes away',
         ]);
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
 
         $secondBuild = 'bbbbbbbbbbbbbbbb';
         $this->givenBuildOutput(['index.html' => 'second build'], build: $secondBuild);
-        $this->workspace->publish($secondBuild, self::SITE, self::SLUG);
+        $this->workspace->publish($secondBuild, self::SLUG);
 
         self::assertSame('second build', file_get_contents($this->publishedSite() . '/index.html'));
         self::assertFileDoesNotExist($this->publishedSite() . '/removed-later.html');
@@ -187,7 +184,7 @@ final class JobWorkspacePublishTest extends TestCase
     public function testPublishingAgainWithNoBuildOutputRebuildsRatherThanSkipping(): void
     {
         $this->givenBuildOutput();
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
 
         /** The site is live, and the output tree moved with it. */
         self::assertSame('<h1>hello</h1>', file_get_contents($this->publishedSite() . '/index.html'));
@@ -195,7 +192,7 @@ final class JobWorkspacePublishTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Nothing to publish');
 
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
     }
 
     /**
@@ -210,10 +207,10 @@ final class JobWorkspacePublishTest extends TestCase
 
         $this->givenBuildOutput(['index.html' => 'the real build']);
 
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
 
         self::assertSame('the real build', file_get_contents($this->publishedSite() . '/index.html'));
-        self::assertFileDoesNotExist($this->workspace->publishSiteDir(self::SITE) . '/stale.html');
+        self::assertFileDoesNotExist($this->publishedSite() . '/stale.html');
     }
 
     /** Staging is emptied on the way out, so it never accumulates. */
@@ -221,7 +218,7 @@ final class JobWorkspacePublishTest extends TestCase
     {
         $this->givenBuildOutput();
 
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
 
         self::assertDirectoryDoesNotExist($this->workspace->publishStagingDir(self::BUILD));
     }
@@ -235,18 +232,18 @@ final class JobWorkspacePublishTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('rendered no pages');
 
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
     }
 
     public function testAnEmptyBuildLeavesTheLiveSiteAlone(): void
     {
         $this->givenBuildOutput(['index.html' => 'the good site']);
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
 
         $this->givenBuildOutput([], build: 'cccccccccccccccc');
 
         try {
-            $this->workspace->publish('cccccccccccccccc', self::SITE, self::SLUG);
+            $this->workspace->publish('cccccccccccccccc', self::SLUG);
             self::fail('Expected the empty build to be refused.');
         } catch (\InvalidArgumentException) {
             self::assertSame('the good site', file_get_contents($this->publishedSite() . '/index.html'));
@@ -260,49 +257,54 @@ final class JobWorkspacePublishTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Nothing to publish');
 
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
     }
 
-    public function testTheSiteIsPublishedUnderItsStaticSiteIdThenItsSlug(): void
+    public function testTheSiteIsPublishedUnderItsSlug(): void
     {
         $this->givenBuildOutput();
 
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
 
-        self::assertFileExists($this->root . '/pages/' . self::SITE . '/' . self::SLUG . '/index.html');
-        self::assertSame([self::SLUG], array_values(array_diff(scandir($this->root . '/pages/' . self::SITE), ['.', '..'])));
+        self::assertFileExists($this->root . '/sites/' . self::SLUG . '/index.html');
     }
 
-    /** A site whose slug changed must stop being served under the old one. */
-    public function testPublishingANewSlugRemovesTheSitesOldSlug(): void
-    {
-        $this->givenBuildOutput(['index.html' => 'under the old slug']);
-        $this->workspace->publish(self::BUILD, self::SITE, 'old-slug');
-
-        $secondBuild = '0199a1b2-3c4d-7e5f-8a9b-bbbbbbbbbbbb';
-        $this->givenBuildOutput(['index.html' => 'under the new slug'], build: $secondBuild);
-        $this->workspace->publish($secondBuild, self::SITE, self::SLUG);
-
-        self::assertDirectoryDoesNotExist($this->workspace->publishSiteDir(self::SITE) . '/old-slug');
-        self::assertSame('under the new slug', file_get_contents($this->publishedSite() . '/index.html'));
-    }
-
-    /** The published tree is keyed on static_site_id, so two sites may use the same slug without touching each other. */
-    public function testTwoSitesWithTheSameSlugCoexist(): void
+    /** The published tree is keyed on the slug, so two sites never touch each other's directory. */
+    public function testTwoSitesWithDifferentSlugsCoexist(): void
     {
         $this->givenBuildOutput(['index.html' => 'the first site']);
-        $this->workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $this->workspace->publish(self::BUILD, self::SLUG);
 
-        $otherSite = '4b6c1e2a-9d3f-4a7b-8c5e-2f1d0a9b8c7d';
         $otherBuild = '0199a1b2-3c4d-7e5f-8a9b-dddddddddddd';
         $this->givenBuildOutput(['index.html' => 'the second site'], build: $otherBuild);
-        $this->workspace->publish($otherBuild, $otherSite, self::SLUG);
+        $this->workspace->publish($otherBuild, 'other-site');
 
         self::assertSame('the first site', file_get_contents($this->publishedSite() . '/index.html'));
-        self::assertSame(
-            'the second site',
-            file_get_contents($this->workspace->publishSiteDir($otherSite) . '/' . self::SLUG . '/index.html'),
-        );
+        self::assertSame('the second site', file_get_contents($this->workspace->publishSiteDir('other-site') . '/index.html'));
+    }
+
+    // --- unpublishing a failed build's site --------------------------------
+
+    /** A build that failed after publishing must not leave its site served. */
+    public function testUnpublishRemovesTheSiteAndOnlyThatSite(): void
+    {
+        $this->givenBuildOutput(['index.html' => 'the failed site']);
+        $this->workspace->publish(self::BUILD, self::SLUG);
+
+        $otherBuild = '0199a1b2-3c4d-7e5f-8a9b-dddddddddddd';
+        $this->givenBuildOutput(['index.html' => 'another site'], build: $otherBuild);
+        $this->workspace->publish($otherBuild, 'other-site');
+
+        self::assertTrue($this->workspace->unpublish(self::SLUG));
+
+        self::assertDirectoryDoesNotExist($this->publishedSite());
+        self::assertFileExists($this->workspace->publishSiteDir('other-site') . '/index.html');
+    }
+
+    /** A build that failed before publishing has nothing to remove, which is not an error. */
+    public function testUnpublishingASiteThatWasNeverPublishedSucceeds(): void
+    {
+        self::assertTrue($this->workspace->unpublish(self::SLUG));
     }
 
     // --- the cross-mount reality of the dev stack -------------------------
@@ -343,7 +345,7 @@ final class JobWorkspacePublishTest extends TestCase
         $workspace = $this->workspaceAcrossMounts();
         $this->givenBuildOutput(['index.html' => 'copied across mounts']);
 
-        $workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $workspace->publish(self::BUILD, self::SLUG);
 
         self::assertSame('copied across mounts', file_get_contents($this->publishedSite() . '/index.html'));
         self::assertDirectoryDoesNotExist($this->workspace->buildJobOutputDir(self::BUILD));
@@ -354,11 +356,11 @@ final class JobWorkspacePublishTest extends TestCase
         $workspace = $this->workspaceAcrossMounts();
 
         $this->givenBuildOutput(['index.html' => 'first', 'gone-later.html' => 'x']);
-        $workspace->publish(self::BUILD, self::SITE, self::SLUG);
+        $workspace->publish(self::BUILD, self::SLUG);
 
         $second = 'bbbbbbbbbbbbbbbb';
         $this->givenBuildOutput(['index.html' => 'second'], build: $second);
-        $workspace->publish($second, self::SITE, self::SLUG);
+        $workspace->publish($second, self::SLUG);
 
         self::assertSame('second', file_get_contents($this->publishedSite() . '/index.html'));
         self::assertFileDoesNotExist($this->publishedSite() . '/gone-later.html');

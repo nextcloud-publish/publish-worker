@@ -14,8 +14,8 @@ result queue.
 
 ```text
 BUILDS_DIR/<build_id>/{input,output}      build scratch, 0750
-PAGES_DIR/<static_site_id>/<slug>/       the live site, served at PUBLISH_BASE_URL
-PAGES_DIR/.staging/<build_id>/<slug>/    the build before it goes live
+SITES_DIR/<slug>/                        the live site, served at PUBLISH_BASE_URL/<slug>/
+SITES_DIR/.staging/<build_id>/           the build before it goes live
 ```
 
 [JobWorkspace](../src/Job/JobWorkspace.php) builds every path.
@@ -24,7 +24,7 @@ PAGES_DIR/.staging/<build_id>/<slug>/    the build before it goes live
   The renderer does not clear `output/`, so a shared one would republish deleted pages.
 - The two roots may be on different mounts. `rename()` fails across mounts with `EXDEV`, so
   [Filesystem::moveDir()](../src/Job/Filesystem.php) falls back to a recursive copy.
-- `.staging` lives inside `PAGES_DIR`, so the final swap is a rename on one mount. nginx's
+- `.staging` lives inside `SITES_DIR`, so the final swap is a rename on one mount. nginx's
   `location ~ /\.` answers 404 for it.
 - A failed build's directory is deleted. The callback error and the `Build failed` log line are
   its only record.
@@ -34,15 +34,16 @@ PAGES_DIR/.staging/<build_id>/<slug>/    the build before it goes live
 The handler calls `reset()` at the start of every attempt, `publish()` on success, and
 `clear()` once the job is finished either way. `publish()` runs three steps:
 
-1. Moves `output/` to `.staging/<build_id>/<slug>/`. This is the slow step, and it does not
+1. Moves `output/` to `.staging/<build_id>/`. This is the slow step, and it does not
    touch the live site.
 2. Sets the staged tree to `0755` for directories and `0644` for files, so nginx can read it.
    `output/` is `0750`, and files from the archive keep their tarball modes.
-3. Deletes `PAGES_DIR/<static_site_id>/` and renames the staged directory in its place.
+3. Deletes `SITES_DIR/<slug>/` and renames the staged directory in its place.
    `rename()` onto a non-empty directory fails with `ENOTEMPTY`.
 
-Replacing the whole site directory means an old slug stops being served. `publish()` refuses
-an empty `output/`, so a build with no pages never replaces a live site.
+`publish()` refuses an empty `output/`, so a build with no pages never replaces a live site.
+The slug is the directory, and publish keeps it unique across sites. An update keeps the site's
+slug, so it replaces the same directory.
 
 Known limitation: the site answers 404 between the delete and the rename. Nothing records how
 far an attempt got, so a retry rebuilds from the start.
@@ -77,12 +78,60 @@ The broker must declare the `delays` exchange. With `auto_setup: false`, Messeng
 its delay queues to it, and a missing exchange stops the consumer on its first retry. publish
 declares it in `docker/dev/rabbitmq/definitions.json`.
 
+## Status in publish's database
+
+publish stores every site in its `static_site` table, as `pending` with the `build_id` it
+enqueued. Before each callback the worker writes the outcome there. A published build sets the
+status:
+
+```sql
+UPDATE static_site SET status = 'published' WHERE id = :static_site_id AND build_id = :build_id
+```
+
+A create that fails for good leaves nothing behind, so the client can POST the site again without
+a conflict. `BuildFailureHandler` removes `SITES_DIR/<slug>/`, then the entry:
+
+```sql
+DELETE FROM static_site WHERE id = :static_site_id
+```
+
+A delete builds nothing and carries no `build_id`. It removes `SITES_DIR/<slug>/`, then the entry
+with the same `DELETE`, then PATCHes `deleted`. When the directory cannot be removed it throws a
+`\RuntimeException`, so the entry stays while the files are served.
+
+An update or delete that fails for good keeps whatever is published and marks the entry `failed`,
+a delete by the site's id alone:
+
+```sql
+UPDATE static_site SET status = 'failed' WHERE id = :static_site_id AND build_id = :build_id
+```
+
+`src/Job/StaticSiteStatusStore.php` is the only SQL.
+
+- The order is files, then entry, then callback. On success: publish, then status, then
+  callback, so the database holds the result even when the callback fails. A retried build sets
+  the same status again.
+- A build can fail after publishing, when only its callback failed. Its published site is
+  removed with the entry, so nothing unowned stays served.
+- The `build_id` condition on the status updates is a fence: a build publish has since replaced
+  changes nothing, and neither does one whose site was deleted. The `DELETE` goes by the site's id
+  alone, so an entry is never left behind because its `build_id` changed. A statement that matches
+  nothing is a `static_site status not saved` or `static_site entry not deleted` warning, not a
+  failure; the callback is sent as before.
+- A database error on success is an environment error: the build is retried. On failure it is
+  logged as `Could not delete static_site entry in the database`, and the `failed` callback is
+  sent anyway. The entry then stays, and the client's next POST of the site gets a `409` until
+  an operator removes it.
+- The worker owns no schema. The table is publish's migration; `tests/fixtures/static_site.sql`
+  is the copy the tests check the SQL against.
+
 ## Callback
 
-A `PATCH` to `callback_status_url` with one of two bodies:
+A `PATCH` to `callback_status_url` with one of three bodies:
 
 ```json
-{ "status": "published", "data": { "publish_url": "https://sites.example.org/<static_site_id>/<slug>/" } }
+{ "status": "published", "data": { "publish_url": "https://sites.example.org/<slug>/" } }
+{ "status": "deleted",   "data": {} }
 { "status": "failed",    "data": { "error_message": "Could not download ..." } }
 ```
 

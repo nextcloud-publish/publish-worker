@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Update together with publish, which stores every site in its `static_site` table and passes
+`DATABASE_URL` to the worker. The worker needs it: without it the first build fails. Rename
+`PAGES_DIR` to `SITES_DIR` where it is set, and move the published sites from `var/pages` to
+`var/sites` or to the new mount.
+
+### Added
+
+- `update` builds and swaps like a create, under the site's slug. An update that fails for good
+  keeps the live site and sets `static_site.status` to `failed`.
+- `delete` removes `SITES_DIR/<slug>/`, then the `static_site` entry, and PATCHes
+  `{"status": "deleted", "data": {}}`, a status Nextcloud has to accept. A delete that cannot remove
+  the files is retried; one that fails for good keeps the entry as `failed`.
+- `DATABASE_URL`, required: publish's Postgres. The worker connects through Doctrine DBAL, without
+  an ORM and without a schema of its own. The images ship `pdo_pgsql`.
+- A published build sets its site's `static_site.status` to `published`. A build that fails for
+  good removes its published site and deletes the entry, so the client can POST the site again.
+  Both happen before the callback. The status is only set while the entry still names this build;
+  the entry is deleted by the site's id alone.
+
+### Changed
+
+- **Breaking:** `BuildJob` requires `operation`: `create`, `update` or `delete`. A message without
+  it is rejected, so this needs a publish that sends it. `build_id`, `title` and
+  `content_download_url` are only set for create and update.
+- **Breaking:** sites are published at `SITES_DIR/<slug>/`, and `publish_url` is
+  `<PUBLISH_BASE_URL>/<slug>/`, without the `static_site_id`. publish keeps slugs unique. Sites
+  published before stay under `PAGES_DIR/<static_site_id>/` until removed by hand; publish them
+  again for the new URL.
+- **Breaking:** `PAGES_DIR` is `SITES_DIR`, default `var/sites` instead of `var/pages`. A
+  deployment that sets `PAGES_DIR` renames it and moves its sites.
+- Requires ssg-library `^0.4` instead of `^0.2`. The images ship `git`, which composer uses to
+  fetch it.
+
+### Security
+
+- Symfony 8.1.12, which fixes 13 advisories in the packages the worker uses.
+
 ## [0.6.0] - 2026-11-15
 
 The storage roots are `BUILDS_DIR` and `PAGES_DIR`, with the defaults `var/builds` and `var/pages`.

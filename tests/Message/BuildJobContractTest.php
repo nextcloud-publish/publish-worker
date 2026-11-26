@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Message;
 
 use App\Message\BuildJob;
+use App\Message\BuildOperation;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Messenger\Exception\MessageDecodingFailedException;
@@ -74,6 +75,7 @@ final class BuildJobContractTest extends KernelTestCase
         return [
             'build_id' => '16ef078ad37fd894',
             'static_site_id' => '11f5b798-6f34-4951-ad8b-bfd623ded5c2',
+            'operation' => 'create',
             'slug' => 'my-team-handbook',
             'content_download_url' => 'https://cloud.example.org/collectives/publish/1234-5678',
             'callback_status_url' => 'https://cloud.example.org/collectives/publish/1234-5678',
@@ -88,11 +90,59 @@ final class BuildJobContractTest extends KernelTestCase
 
         self::assertSame('16ef078ad37fd894', $build->build_id);
         self::assertSame('11f5b798-6f34-4951-ad8b-bfd623ded5c2', $build->static_site_id);
+        self::assertSame(BuildOperation::Create, $build->operation);
         self::assertSame('my-team-handbook', $build->slug);
         self::assertSame('https://cloud.example.org/collectives/publish/1234-5678', $build->content_download_url);
         self::assertSame('https://cloud.example.org/collectives/publish/1234-5678', $build->callback_status_url);
         self::assertSame('2026-09-17T10:00:00+00:00', $build->created_at);
         self::assertSame('My Team Handbook', $build->title);
+    }
+
+    public function testDecodesAnUpdate(): void
+    {
+        self::assertSame(BuildOperation::Update, $this->decode([...self::currentPayload(), 'operation' => 'update'])->operation);
+    }
+
+    /** A delete builds nothing, so publish sends build_id null and no content_download_url and no title. */
+    public function testDecodesADeleteWithoutBuildIdContentOrTitle(): void
+    {
+        $payload = [...self::currentPayload(), 'operation' => 'delete', 'build_id' => null];
+        unset($payload['content_download_url'], $payload['title']);
+
+        $build = $this->decode($payload);
+
+        self::assertSame(BuildOperation::Delete, $build->operation);
+        self::assertNull($build->build_id);
+        self::assertNull($build->content_download_url);
+        self::assertNull($build->title);
+    }
+
+    /**
+     * operation has no default, so a message from a publish that does not send it is rejected rather than built.
+     *
+     * @return array<string, array{array<string, mixed>}>
+     */
+    public static function invalidOperations(): array
+    {
+        $missing = self::currentPayload();
+        unset($missing['operation']);
+
+        return [
+            'missing' => [$missing],
+            'unknown' => [[...self::currentPayload(), 'operation' => 'rename']],
+        ];
+    }
+
+    /** @param array<string, mixed> $payload The body to decode. */
+    #[DataProvider('invalidOperations')]
+    public function testAMissingOrUnknownOperationFailsDecoding(array $payload): void
+    {
+        $envelope = $this->serializer()->decode([
+            'body' => json_encode($payload, JSON_THROW_ON_ERROR),
+            'headers' => self::TYPE_HEADER,
+        ]);
+
+        self::assertInstanceOf(MessageDecodingFailedException::class, $envelope->getMessage());
     }
 
     /** Unknown keys are ignored rather than fatal, so publish can add a field this service does not know yet. */
@@ -117,10 +167,11 @@ final class BuildJobContractTest extends KernelTestCase
             [
                 'build_id',
                 'static_site_id',
+                'operation',
                 'slug',
-                'content_download_url',
                 'callback_status_url',
                 'created_at',
+                'content_download_url',
                 'title',
                 'render_options',
             ],
@@ -136,10 +187,10 @@ final class BuildJobContractTest extends KernelTestCase
     public static function renderOptionsValues(): array
     {
         return [
-            'object' => [['theme' => 'colorful', 'nested' => ['a' => 1]]],
+            'object' => [['theme' => 'topnav', 'nested' => ['a' => 1]]],
             'empty object' => [[]],
-            'list' => [['colorful', 'muted']],
-            'string' => ['colorful'],
+            'list' => [['topnav', 'wiki']],
+            'string' => ['topnav'],
             'number' => [42],
             'null' => [null],
         ];
