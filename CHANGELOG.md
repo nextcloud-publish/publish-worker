@@ -40,6 +40,10 @@ Update together with publish, which stores every site in its `static_site` table
 - Requires ssg-library `^0.4` instead of `^0.2`. The images ship `git`, which composer uses to
   fetch it.
 
+### Security
+
+- Symfony 8.1.12, which fixes 13 advisories in the packages the worker uses.
+
 ## [0.6.0] - 2026-11-15
 
 The storage roots are `BUILDS_DIR` and `PAGES_DIR`, with the defaults `var/builds` and `var/pages`.
